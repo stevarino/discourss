@@ -1,0 +1,124 @@
+import { log, LOG_LEVEL, DEFAULT_APP_NAME, errorToString } from './common.js';
+import { readSettingsTab } from './sheets.js';
+class Setting {
+    constructor(value, help, validators) {
+        this.value = value;
+        this.help = help;
+        this.validators = validators !== null && validators !== void 0 ? validators : [];
+    }
+    set(value) {
+        if (typeof value !== typeof this.value) {
+            return `Expected ${typeof this.value}, got ${typeof value}.`;
+        }
+        this.value = value;
+        return this.validate();
+    }
+    validate() {
+        for (const val of this.validators) {
+            try {
+                if (!val[0](this.value)) {
+                    return val[1];
+                }
+            }
+            catch (e) {
+                return errorToString(e);
+            }
+        }
+        return undefined;
+    }
+}
+export class Context {
+    constructor(spreadsheet) {
+        this.appname = new Setting(DEFAULT_APP_NAME, 'The Discord Bot name.');
+        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
+        this.webhook = new Setting('', 'Discord channel webhook.', [
+            [v => v !== '', 'Webhook must be set.'],
+            [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
+        ]);
+        this.signature = new Setting('%s Posted:', 'The signature used for the title. "%s" is replaced with the discord user.');
+        this.feed_pattern = new Setting('^https://', 'Regular expression that individual feeds are validated against.');
+        this.feed_limit = new Setting(5, 'How many feeds to process per run.');
+        this.feed_frequency = new Setting(3600, 'How long a single feed will be scanned (in seconds).');
+        this.image_format = new Setting('image', 'How to attach the image from the feed item (image|thumbnail|none)', [
+            [(v) => ["image", "thumbnail", "none"].includes(v),
+                'Value must be "image", "thumbnail", or "none".'],
+        ]);
+        this.bundle = new Setting(false, "Whether or not to bundle the items as a single discord message.");
+        this.feedHeaders = [];
+        this.logs = [];
+        this.debug = false;
+        this.now = new Date().getTime();
+        this.feedPatternRe = new RegExp('^https://');
+        this.spreadsheet = spreadsheet;
+    }
+    static getDefaults() {
+        const defaults = [];
+        const context = new Context(null);
+        for (const [key, val] of Object.entries(context)) {
+            if (val.instanceof(Setting)) {
+                defaults.push([key, val]);
+            }
+        }
+        return defaults;
+    }
+    validate() {
+        const errors = [];
+        for (const [key, val] of Object.entries(this)) {
+            if (val instanceof Setting) {
+                const error = val.validate();
+                if (error) {
+                    errors.push(`${key}: ${error}`);
+                }
+            }
+        }
+        return errors;
+    }
+    fetch(url, params) {
+        UrlFetchApp.fetch(url, params);
+    }
+    log(level, message) {
+        this.logs.push([new Date().getTime(), level, message]);
+    }
+    error(message) {
+        log(this.logs, message, LOG_LEVEL.ERROR);
+    }
+    warn(message) {
+        log(this.logs, message, LOG_LEVEL.WARNING);
+    }
+    info(message) {
+        log(this.logs, message, LOG_LEVEL.INFO);
+    }
+}
+// export type SettingsRecord = Record<SETTINGS_FIELDS, string|number|boolean>;
+/**
+ * Returns a settings object.
+ */
+export function getContext(sheet, logs) {
+    const context = new Context(sheet);
+    context.logs = logs;
+    const [, data] = readSettingsTab(sheet);
+    const errors = [];
+    for (const [key, val] of data) {
+        if (typeof key !== 'string' || !context.hasOwnProperty(key)) {
+            continue;
+        }
+        const setting = context[key];
+        if (!(setting instanceof Setting)) {
+            continue;
+        }
+        const error = setting.set(val);
+        if (error != undefined) {
+            errors.push(`${key}: ${error}`);
+        }
+    }
+    if (!errors.length) {
+        errors.push(...context.validate());
+    }
+    if (errors.length) {
+        const msg = `Errors occurred during startup: ${errors.join('; ')}`;
+        log(logs, msg, LOG_LEVEL.ERROR);
+        throw new Error('Unable to construct Context');
+    }
+    context.feedPatternRe = new RegExp(context.feed_pattern.value);
+    return context;
+}

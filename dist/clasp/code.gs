@@ -1,7 +1,35 @@
-const DEFAULT_APP_NAME = 'Sheets RSS to Discord';
-const FEEDS_TAB = 'feeds';
-const SETTINGS_TAB = 'settings';
-const LOGS_TAB = 'logs';
+/**
+ * Given a spreadsheet with a set of letterboxd RSS feeds, read the
+ * feed and ping discord with any updates.
+ * 
+ * To manually test, run the function onTimer()
+ * 
+ * Requires library Cheerio: 1ReeQ6WO8kKNxoaA_O0XEQ589cIrRvEBA9qcWpNqdOP17i47u6N9M5Xh0
+ * 
+ * Spreadsheet requirements:
+ * 
+ * A sheet called "feeds" with the headers listed below (Feed, Time, Discord,
+ * GUID, Status). Order does not matter and you can have other columns. The
+ * actual rows for each feed can be equations.
+ * 
+ * A sheet called "settings" with each row being a setting (no header needed).
+ * See the Settings typedef below for what can be set.
+ * 
+ * Set this script up to run with the following triggers:
+ * 
+ *  - From Spreadsheet - On Open: 
+ *    - function: onOpen
+ *  - Time Based:
+ *    - function: onTimer
+ *    - frequency: recommend "Every 5 Minutes", script will rate limit itself
+ *      through settings such as feed_limit and feed_frequency.
+ */
+
+
+/**
+ * common.js - common interfaces, types, and constants.
+ */
+const DEFAULT_APP_NAME = 'DiscouRSS';
 var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";
@@ -16,41 +44,27 @@ var LOG_LEVEL;
     LOG_LEVEL[LOG_LEVEL["WARNING"] = 1] = "WARNING";
     LOG_LEVEL[LOG_LEVEL["INFO"] = 2] = "INFO";
 })(LOG_LEVEL || (LOG_LEVEL = {}));
-var SETTINGS_FIELDS;
-(function (SETTINGS_FIELDS) {
-    SETTINGS_FIELDS["appname"] = "appname";
-    SETTINGS_FIELDS["avatar_url"] = "avatar_url";
-    SETTINGS_FIELDS["webhook"] = "webhook";
-    SETTINGS_FIELDS["signature"] = "signature";
-    SETTINGS_FIELDS["image_format"] = "image_format";
-    SETTINGS_FIELDS["bundle"] = "bundle";
-    SETTINGS_FIELDS["feed_pattern"] = "feed_pattern";
-    SETTINGS_FIELDS["feed_limit"] = "feed_limit";
-    SETTINGS_FIELDS["feed_frequency"] = "feed_frequency";
-})(SETTINGS_FIELDS || (SETTINGS_FIELDS = {}));
-const DEFAULT_SETTINGS = {
-    now: 0,
-    appname: 'Sheets RSS',
-    signature: '%s Posted:',
-    feed_pattern: '^https://',
-    feed_limit: 5,
-    feed_frequency: 3600,
-    image_format: 'image',
-    bundle: false,
-    feed_pattern_re: new RegExp('^https://'),
-    fetch: (url, params) => UrlFetchApp.fetch(url, params),
-    logs: [],
-    log: function (level, message) { this.logs.push([new Date().getTime(), level, message]); },
-    error: function (message) { this.log(LOG_LEVEL.ERROR, message); },
-    warn: function (message) { this.log(LOG_LEVEL.WARNING, message); },
-    info: function (message) { this.log(LOG_LEVEL.INFO, message); },
-};
-function getDefaultSettings() {
-    // return a new Settings object.
-    return {
-        ...DEFAULT_SETTINGS,
-        now: new Date().getTime(),
-    };
+function errorToString(e) {
+    // LOG_RECORD
+    if (Array.isArray(e) && typeof e[2] === 'string') {
+        return e[2];
+    }
+    if (e instanceof Error) {
+        if (e.stack) {
+            return `${e.message}\n${e.stack}`;
+        }
+        return e.message;
+    }
+    return `${e}`;
+}
+function errorToLogRecord(e, level) {
+    return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
+}
+function log(logs, message, level) {
+    if (!Array.isArray(message)) {
+        message = errorToLogRecord(message, level !== null && level !== void 0 ? level : LOG_LEVEL.INFO);
+    }
+    logs.push(message);
 }
 const SHEET_HEADERS = {
     index: {
@@ -81,11 +95,17 @@ const SHEET_HEADERS = {
 const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(v => v.help !== '').map(v => v.label);
 const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k]));
 
-function setup() {
-    const sheet = SpreadsheetApp.getActive();
-    setupFeedsTab(sheet);
-    setupSettingsTab(sheet);
-    setupTriggers();
+/**
+ * sheegts.js - functions related to processing the spreadsheet.
+ */
+const defaults = {
+    settings: [],
+};
+const SETTINGS_TAB = 'settings';
+const FEEDS_TAB = 'feeds';
+const LOGS_TAB = 'logs';
+function newTextStyle() {
+    return SpreadsheetApp.newTextStyle();
 }
 function setupFeedsTab(sheet) {
     // Creates the Feeds tab and adds any missing columns.
@@ -125,356 +145,38 @@ function setupFeedsTab(sheet) {
         rowA.setValues([newData[0]]);
         rowB.setValues([newData[1]]);
         rowA.setBackground('#4285f4'); // cornflower blue
-        rowA.setTextStyle(SpreadsheetApp.newTextStyle().setFontSize(16).setBold(true)
+        rowA.setTextStyle(newTextStyle().setFontSize(16).setBold(true)
             .setForegroundColor('#ffffff').build());
         rowB.setBackground('#4285f4'); // cornflower blue
-        rowB.setTextStyle(SpreadsheetApp.newTextStyle().setFontSize(10).setBold(false)
+        rowB.setTextStyle(newTextStyle().setFontSize(10).setBold(false)
             .setForegroundColor('#ffffff').build());
         tab.autoResizeColumns(cols + 1, newData[0].length);
     }
 }
-function setupSettingsTab(sheet) {
-    let tab = sheet.getSheetByName(SETTINGS_TAB);
-    if (tab === null) {
-        tab = sheet.insertSheet(SETTINGS_TAB);
-    }
-    const exists = new Set();
-    const rowData = tab.getDataRange().getValues();
-    for (const row of rowData) {
-        const key = row[0];
-        if (!key || !(key in SETTINGS_FIELDS)) {
-            continue;
-        }
-        exists.add(key);
-    }
-    const toAdd = [];
-    for (const field of Object.keys(SETTINGS_FIELDS)) {
-        if (!exists.has(field)) {
-            toAdd.push([field, DEFAULT_SETTINGS[field]]);
-        }
-    }
-    if (toAdd.length === 0) {
-        return;
-    }
-    const range = tab.getRange(sheet.getLastRow() + 1, 1, toAdd.length, 2);
-    range.setValues(toAdd);
-}
-function setupTriggers() {
-    const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
-    if (!triggers.includes('timerTrigger')) {
-        ScriptApp.newTrigger('timerTrigger')
-            .timeBased().everyMinutes(5).create();
-    }
-}
-
-/**
- * Given a spreadsheet with a set of letterboxd RSS feeds, read the
- * feed and ping discord with any updates.
- *
- * To manually test, run the function onTimer()
- *
- * Requires library Cheerio: 1ReeQ6WO8kKNxoaA_O0XEQ589cIrRvEBA9qcWpNqdOP17i47u6N9M5Xh0
- *
- * Spreadsheet requirements:
- *
- * A sheet called "feeds" with the headers listed below (Feed, Time, Discord,
- * GUID, Status). Order does not matter and you can have other columns. The
- * actual rows for each feed can be equations.
- *
- * A sheet called "settings" with each row being a setting (no header needed).
- * See the Settings typedef below for what can be set.
- *
- * Set this script up to run with the following triggers:
- *
- *  - From Spreadsheet - On Open:
- *    - function: onOpen
- *  - Time Based:
- *    - function: onTimer
- *    - frequency: recommend "Every 5 Minutes", script will rate limit itself
- *      through settings such as feed_limit and feed_frequency.
- */
-function getSettings(sheet, logs) {
-    const settings = getDefaultSettings();
-    settings.logs = logs;
+function readSettingsTab(sheet) {
     const settingsTab = sheet.getSheetByName(SETTINGS_TAB);
     if (settingsTab === null) {
         throw new Error('expected a sheet called "settings" - found none.');
     }
-    for (const row of settingsTab.getDataRange().getValues()) {
-        const key = row[0];
-        if (!key || !(key in SETTINGS_FIELDS)) {
-            continue;
-        }
-        settings[key] = row[1];
-    }
-    settings.feed_pattern_re = new RegExp(settings.feed_pattern);
-    return settings;
+    return [settingsTab, settingsTab.getDataRange().getValues()];
 }
-function run(settings) {
-    var _a, _b;
-    const spreadsheet = SpreadsheetApp.getActive();
-    const logs = [];
-    try {
-        if (!settings) {
-            settings = getSettings(spreadsheet, logs);
-        }
-        const sheet = spreadsheet.getSheetByName(FEEDS_TAB);
-        if (!sheet) {
-            settings.error(`expected a sheet called "${FEEDS_TAB}" - found none.`);
-            return;
-        }
-        const { feeds, headers } = getFeeds(sheet.getDataRange().getValues(), settings);
-        let count = 0;
-        for (const feed of feeds) {
-            count++;
-            if (count > settings.feed_limit) {
-                console.info(`hit limit of ${settings.feed_limit} feeds - stopping`);
-                break;
-            }
-            let result;
-            try {
-                result = processFeed(feed, settings);
-            }
-            catch (e) {
-                if (e instanceof Error && !e.stack) {
-                    settings.warn(e.message);
-                }
-                else if (e instanceof Error && e.stack) {
-                    settings.warn(`${e.message}\n${e.stack}`);
-                }
-                else {
-                    settings.warn(`${e}`);
-                }
-                continue;
-            }
-            if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
-                sendDiscordMessage({ embeds: result.message.embeds }, settings);
-            }
-            if (result === null || result === void 0 ? void 0 : result.guid) {
-                for (const [header, value] of [
-                    [SHEET_HEADERS.time.label, settings.now],
-                    [SHEET_HEADERS.guid.label, result.guid],
-                    [SHEET_HEADERS.status.label, result.status_text],
-                ]) {
-                    const offset = headers.indexOf(header);
-                    if (offset === -1) {
-                        // this should never fire.
-                        throw new Error(`Unable to find column "${header}"`);
-                    }
-                    sheet
-                        .getRange(feed.index + 1, offset + 1, 1, 1)
-                        .setValues([[value]]);
-                }
-            }
-            console.log(`Updated row ${feed.index} ${result === null || result === void 0 ? void 0 : result.status}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
+function updateSettingsTab(sheet, defaults) {
+    const [tab, values] = readSettingsTab(sheet);
+    const exists = new Set(values.map(row => row[0]).filter(v => v));
+    const toAdd = [];
+    for (const [key, val] of defaults) {
+        if (!exists.has(key)) {
+            toAdd.push([key, val]);
         }
     }
-    finally {
-        writeLogs(spreadsheet, logs);
+    if (toAdd.length) {
+        const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, 2);
+        range.setValues(toAdd);
     }
-}
-function getFeeds(values, settings) {
-    const headers = [];
-    const feeds = [];
-    for (let i = 0; i < values.length; i++) {
-        // setup columns for dict-like lookup.
-        if (headers.length === 0) {
-            headers.push(String(...values[i]));
-            const missing = [];
-            for (const v of EXPECTED_HEADERS) {
-                if (!headers.includes(v)) {
-                    missing.push(v);
-                }
-            }
-            if (missing.length !== 0) {
-                throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
-            }
-            continue;
-        }
-        const feed = { index: i };
-        for (const j in headers) {
-            const field = HEADER_LOOKUP[headers[j]];
-            if (field !== undefined) {
-                feed[field] = values[i][j];
-            }
-        }
-        if (!feed.feed) {
-            continue;
-        }
-        if (typeof feed.time !== 'number') {
-            feed.time = 0;
-        }
-        // skip feed that is not obvious feed url
-        if (!settings.feed_pattern_re.test(feed.feed)) {
-            continue;
-        }
-        feeds.push(feed);
-    }
-    if (feeds.length === 0) {
-        throw new Error("No feeds found.");
-    }
-    // sort feeds by time in ascending order
-    feeds.sort((a, b) => a.time - b.time);
-    return { headers, feeds };
 }
 /**
- * Process Feed
+ * Given an array of logs, inserts the logs into the `logs` tab.
  */
-function processFeed(feed, settings) {
-    console.info(`processing ${feed.feed}`);
-    const feed_settings = Object.assign({ ...settings }, {
-        discord: feed.discord,
-        guid: feed.guid,
-    });
-    // skip feed that has recently been scanned
-    const diff = settings.now - feed.time;
-    if (diff < settings.feed_frequency * 1000) {
-        console.info(`hit frequency limit of ${settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
-        return { status: STATUS.SKIP, status_text: '' };
-    }
-    console.log('Fetching: ', feed.feed);
-    const res = UrlFetchApp.fetch(feed.feed, { muteHttpExceptions: true });
-    if (res.getResponseCode() != 200) {
-        return {
-            status: STATUS.ERROR,
-            status_text: `HTTP Response code: ${res.getResponseCode()}`
-        };
-    }
-    return parseRssXml(res.getContentText(), feed_settings);
-}
-function parseRssXml(content, settings) {
-    const msg = {
-        username: settings.discord,
-        embeds: [],
-    };
-    const doc = XmlService.parse(content.trim());
-    const root = doc.getRootElement();
-    if (!root) {
-        throw Error('Failed to parse feed');
-    }
-    const channel = root.getChild('channel');
-    if (!channel) {
-        throw Error('channel element not found');
-    }
-    let firstGuid = '';
-    let foundLast = false;
-    let status = 'ok';
-    const items = channel.getChildren("item");
-    if (items.length === 0) {
-        firstGuid = '0';
-        status = 'no items';
-    }
-    for (const item of items) {
-        const embed = {
-            title: item.getChild("title").getText(),
-            url: item.getChild('link').getText(),
-            fields: [],
-        };
-        const guid = item.getChild('guid').getText();
-        if (settings.debug) {
-            embed.fields.push({ name: 'guid', value: guid });
-        }
-        if (firstGuid === '') {
-            firstGuid = guid;
-        }
-        if (guid === settings.guid) {
-            foundLast = true;
-            break;
-        }
-        const $ = Cheerio.load(item.getChild('description').getValue());
-        const image = $('img').attr('src');
-        if (image) {
-            if (settings.image_format == 'image') {
-                embed.image = { url: image };
-            }
-            else if (settings.image_format == 'thumbnail') {
-                embed.thumbnail = { url: image };
-            }
-        }
-        const review = [...$("p")].map(el => $(el).text());
-        embed.description = review.join('\n\n').trim();
-        msg.embeds.push(embed);
-    }
-    // TODO: better separate this.
-    // new (to us) feed. we only care about entries moving forward, not
-    // entries we have already seen.
-    if (!foundLast && String(settings.guid) !== '0') {
-        status = 'new feed';
-        msg.embeds.length = 0;
-    }
-    else {
-        status = `found ${msg.embeds.length}`;
-    }
-    return {
-        status: STATUS.OK,
-        status_text: status,
-        guid: firstGuid,
-        message: msg,
-    };
-}
-/**
- * Send a message through discord using the webhook.
- */
-function sendDiscordMessage(message, settings) {
-    var _a, _b;
-    if (!settings.webhook) {
-        return;
-    }
-    message = { ...message };
-    let content_line = (_a = settings.discord) !== null && _a !== void 0 ? _a : '';
-    if (typeof content_line === 'number') {
-        content_line = String(content_line);
-    }
-    if (/^[0-9]+$/.test(content_line)) {
-        console.info(`username ${content_line} appears to be a snowflake`);
-        message.allowed_mentions = { users: [content_line] };
-        content_line = `<@${content_line}>`;
-    }
-    if (settings.signature && settings.signature.includes('%s')) {
-        content_line = settings.signature.replace('%s', content_line);
-    }
-    message.content = content_line;
-    message.username = (_b = settings.appname) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
-    if (settings.avatar_url) {
-        message.avatar_url = settings.avatar_url;
-    }
-    const requests = [];
-    if (settings.bundle) {
-        requests.push({
-            method: 'post',
-            payload: JSON.stringify(message),
-            muteHttpExceptions: true,
-            contentType: "application/json"
-        });
-    }
-    else {
-        for (const embed of message.embeds) {
-            let payload = { ...message };
-            payload.embeds = [embed];
-            requests.push({
-                method: 'post',
-                payload: JSON.stringify(payload),
-                muteHttpExceptions: true,
-                contentType: "application/json"
-            });
-        }
-    }
-    for (let i = 0; i < requests.length; i++) {
-        const response = UrlFetchApp.fetch(settings.webhook, requests[i]);
-        console.log(`discord ${i} of ${requests.length} response: `, response.getResponseCode());
-    }
-}
-function onOpen() {
-    var ui = SpreadsheetApp.getUi();
-    // Or DocumentApp, SlidesApp or FormApp.
-    ui.createMenu('RSS Updater')
-        .addItem('Run', 'run')
-        .addItem('Setup', 'setup')
-        .addToUi();
-}
-function timerTrigger() {
-    run();
-}
 function writeLogs(sheet, logs) {
     try {
         const rows = [['epoch', 'DateTime (UTC)', 'Level', 'Message']];
@@ -499,8 +201,9 @@ function writeLogs(sheet, logs) {
             rowCount = oldRows.length + 1;
             range.clear();
             let cutoffTime = new Date().getTime() - (7 * 24 * 3600 * 1000);
-            for (let i = 0; i < rows.length; i++) {
-                if (typeof rows[i][0] === 'number' && cutoffTime < oldRows[i][2]) {
+            for (let i = 0; i < oldRows.length; i++) {
+                const time = oldRows[i][0];
+                if (typeof time === 'number' && cutoffTime < time) {
                     rows.push(oldRows[i]);
                 }
             }
@@ -511,8 +214,430 @@ function writeLogs(sheet, logs) {
         tab.getRange(0, colCount, rows.length, 1).setWrap(true);
     }
     catch (e) {
-        console.error(e);
+        console.error(errorToString(e));
     }
+}
+function getFeedColumn(feedHeaders, header) {
+    return feedHeaders.indexOf(header);
+}
+function readFeedsTab(ctx) {
+    const tab = ctx.spreadsheet.getSheetByName(FEEDS_TAB);
+    const feeds = [];
+    if (!tab) {
+        throw new Error(`expected a sheet called "${FEEDS_TAB}" - found none.`);
+    }
+    const values = tab.getDataRange().getValues();
+    for (let i = 0; i < values.length; i++) {
+        // setup columns for dict-like lookup.
+        if (ctx.feedHeaders.length === 0) {
+            ctx.feedHeaders.push(...values[i]);
+            const missing = [];
+            for (const v of EXPECTED_HEADERS) {
+                if (!ctx.feedHeaders.includes(v)) {
+                    missing.push(v);
+                }
+            }
+            if (missing.length !== 0) {
+                throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
+            }
+            continue;
+        }
+        const feed = { index: i };
+        // iterate across the columns, using the header to map the value to the Feed object
+        for (const [j, header] of ctx.feedHeaders.entries()) {
+            if (typeof header === 'string' && HEADER_LOOKUP[header] !== undefined) {
+                feed[HEADER_LOOKUP[header]] = values[i][j];
+            }
+        }
+        if (!feed.feed) {
+            continue;
+        }
+        if (typeof feed.time !== 'number') {
+            feed.time = 0;
+        }
+        // skip feed that is not obvious feed url
+        if (!ctx.feedPatternRe.test(feed.feed)) {
+            ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+            continue;
+        }
+        feeds.push(feed);
+    }
+    return [tab, feeds];
+}
+function updateFeedsTab(tab, row, column, value, feedHeaders) {
+    const col = getFeedColumn(feedHeaders, column.label);
+    tab.getRange(row, col, 1, 1).setValues([[value]]);
+    return;
+    // for (const [header, value] of [
+    //   [SHEET_HEADERS.time.label, settings.now],
+    //   [SHEET_HEADERS.guid.label, guid],
+    //   [SHEET_HEADERS.status.label, status],
+    // ] as [string, number|string][]) {
+    //   const offset = feedHeaders.indexOf(header);
+    //   if (offset === -1) {
+    //     // this should never fire.
+    //     throw new Error(`Unable to find column "${header}"`);
+    //   }
+    //   sheet
+    //     .getRange(index, offset + 1, 1, 1)
+    //     .setValues([[value]])
+    // }
+}
+function setup() {
+    const sheet = SpreadsheetApp.getActive();
+    setupFeedsTab(sheet);
+    setupSettingsTab(sheet);
+    setupTriggers();
+}
+function setupTriggers() {
+    const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
+    if (!triggers.includes('timerTrigger')) {
+        ScriptApp.newTrigger('timerTrigger')
+            .timeBased().everyMinutes(5).create();
+    }
+}
+function setupSettingsTab(sheet) {
+    updateSettingsTab(sheet, defaults.settings);
+}
+
+class Setting {
+    constructor(value, help, validators) {
+        this.value = value;
+        this.help = help;
+        this.validators = validators !== null && validators !== void 0 ? validators : [];
+    }
+    set(value) {
+        if (typeof value !== typeof this.value) {
+            return `Expected ${typeof this.value}, got ${typeof value}.`;
+        }
+        this.value = value;
+        return this.validate();
+    }
+    validate() {
+        for (const val of this.validators) {
+            try {
+                if (!val[0](this.value)) {
+                    return val[1];
+                }
+            }
+            catch (e) {
+                return errorToString(e);
+            }
+        }
+        return undefined;
+    }
+}
+class Context {
+    constructor(spreadsheet) {
+        this.appname = new Setting(DEFAULT_APP_NAME, 'The Discord Bot name.');
+        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
+        this.webhook = new Setting('', 'Discord channel webhook.', [
+            [v => v !== '', 'Webhook must be set.'],
+            [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
+        ]);
+        this.signature = new Setting('%s Posted:', 'The signature used for the title. "%s" is replaced with the discord user.');
+        this.feed_pattern = new Setting('^https://', 'Regular expression that individual feeds are validated against.');
+        this.feed_limit = new Setting(5, 'How many feeds to process per run.');
+        this.feed_frequency = new Setting(3600, 'How long a single feed will be scanned (in seconds).');
+        this.image_format = new Setting('image', 'How to attach the image from the feed item (image|thumbnail|none)', [
+            [(v) => ["image", "thumbnail", "none"].includes(v),
+                'Value must be "image", "thumbnail", or "none".'],
+        ]);
+        this.bundle = new Setting(false, "Whether or not to bundle the items as a single discord message.");
+        this.feedHeaders = [];
+        this.logs = [];
+        this.debug = false;
+        this.now = new Date().getTime();
+        this.feedPatternRe = new RegExp('^https://');
+        this.spreadsheet = spreadsheet;
+    }
+    static getDefaults() {
+        const defaults = [];
+        const context = new Context(null);
+        for (const [key, val] of Object.entries(context)) {
+            if (val.instanceof(Setting)) {
+                defaults.push([key, val]);
+            }
+        }
+        return defaults;
+    }
+    validate() {
+        const errors = [];
+        for (const [key, val] of Object.entries(this)) {
+            if (val instanceof Setting) {
+                const error = val.validate();
+                if (error) {
+                    errors.push(`${key}: ${error}`);
+                }
+            }
+        }
+        return errors;
+    }
+    fetch(url, params) {
+        UrlFetchApp.fetch(url, params);
+    }
+    log(level, message) {
+        this.logs.push([new Date().getTime(), level, message]);
+    }
+    error(message) {
+        log(this.logs, message, LOG_LEVEL.ERROR);
+    }
+    warn(message) {
+        log(this.logs, message, LOG_LEVEL.WARNING);
+    }
+    info(message) {
+        log(this.logs, message, LOG_LEVEL.INFO);
+    }
+}
+// export type SettingsRecord = Record<SETTINGS_FIELDS, string|number|boolean>;
+/**
+ * Returns a settings object.
+ */
+function getContext(sheet, logs) {
+    const context = new Context(sheet);
+    context.logs = logs;
+    const [, data] = readSettingsTab(sheet);
+    const errors = [];
+    for (const [key, val] of data) {
+        if (typeof key !== 'string' || !context.hasOwnProperty(key)) {
+            continue;
+        }
+        const setting = context[key];
+        if (!(setting instanceof Setting)) {
+            continue;
+        }
+        const error = setting.set(val);
+        if (error != undefined) {
+            errors.push(`${key}: ${error}`);
+        }
+    }
+    if (!errors.length) {
+        errors.push(...context.validate());
+    }
+    if (errors.length) {
+        const msg = `Errors occurred during startup: ${errors.join('; ')}`;
+        log(logs, msg, LOG_LEVEL.ERROR);
+        throw new Error('Unable to construct Context');
+    }
+    context.feedPatternRe = new RegExp(context.feed_pattern.value);
+    return context;
+}
+
+/**
+ * rss.js - functions related to processing RSS feeds.
+ */
+/**
+ * Process Feed
+ */
+function processFeed(feed, ctx) {
+    // skip feed that has recently been scanned
+    const diff = ctx.now - feed.time;
+    if (diff < ctx.feed_frequency.value * 1000) {
+        ctx.info(`${feed.feed} - hit frequency limit of ${ctx.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+        return { status: STATUS.SKIP, status_text: '' };
+    }
+    ctx.info(`${feed.feed} - fetching`);
+    const res = UrlFetchApp.fetch(feed.feed, { muteHttpExceptions: true });
+    if (res.getResponseCode() != 200) {
+        return {
+            status: STATUS.ERROR,
+            status_text: `HTTP Response code: ${res.getResponseCode()}`
+        };
+    }
+    return parseRssXml(res.getContentText(), feed, ctx);
+}
+function parseRssXml(content, feed, ctx) {
+    var _a, _b;
+    const msg = {
+        username: feed.discord,
+        embeds: [],
+    };
+    const doc = XmlService.parse(content.trim());
+    const root = doc.getRootElement();
+    if (!root) {
+        throw Error('Failed to parse feed');
+    }
+    const channel = root.getChild('channel');
+    if (!channel) {
+        throw Error('channel element not found');
+    }
+    let firstGuid = '';
+    let foundLast = false;
+    let status = 'ok';
+    const items = channel.getChildren("item");
+    if (items.length === 0) {
+        firstGuid = '0';
+        status = 'no items';
+    }
+    for (const item of items) {
+        const embed = {
+            title: (_a = item.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
+            url: (_b = item.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
+            fields: [],
+        };
+        const guid = item.getChild('guid').getText();
+        if (ctx.debug) {
+            embed.fields.push({ name: 'guid', value: guid });
+        }
+        if (firstGuid === '') {
+            firstGuid = guid;
+        }
+        if (guid === feed.guid) {
+            foundLast = true;
+            break;
+        }
+        const $ = Cheerio.load(item.getChild('description').getValue());
+        const image = $('img').attr('src');
+        if (image) {
+            if (ctx.image_format.value == 'image') {
+                embed.image = { url: image };
+            }
+            else if (ctx.image_format.value == 'thumbnail') {
+                embed.thumbnail = { url: image };
+            }
+        }
+        embed.description = [...$("p")].map(el => $(el).text()).join('\n\n').trim();
+        msg.embeds.push(embed);
+    }
+    // TODO: better separate this.
+    // new (to us) feed. we only care about entries moving forward, not
+    // entries we have already seen.
+    if (!foundLast && String(feed.guid) !== '0') {
+        status = 'new feed';
+        msg.embeds.length = 0;
+    }
+    else {
+        status = `found ${msg.embeds.length}`;
+    }
+    return {
+        status: STATUS.OK,
+        status_text: status,
+        guid: firstGuid,
+        message: msg,
+    };
+}
+
+/**
+ * index.js - main entry point for code
+ */
+defaults.settings = Context.getDefaults();
+function run(ctx) {
+    var _a, _b;
+    const spreadsheet = SpreadsheetApp.getActive();
+    const logs = [];
+    try {
+        if (!ctx) {
+            ctx = getContext(spreadsheet, logs);
+            if (!ctx) {
+                throw new Error('Unable to load Settings.');
+            }
+        }
+        const [tab, feeds] = readFeedsTab(ctx);
+        let count = 0;
+        for (const feed of feeds) {
+            count += 1;
+            if (count > ctx.feed_limit.value) {
+                ctx.info(`hit limit of ${ctx.feed_limit} feeds - stopping`);
+                break;
+            }
+            let result;
+            try {
+                result = processFeed(feed, ctx);
+            }
+            catch (e) {
+                ctx.warn(errorToString(e));
+                continue;
+            }
+            if (result.status === STATUS.SKIP) {
+                count -= 1;
+                continue;
+            }
+            if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
+                sendDiscordMessage(result.message.embeds, feed, ctx);
+            }
+            // update feed state in spreadsheet
+            if (result === null || result === void 0 ? void 0 : result.guid) {
+                const update = (h, v) => {
+                    updateFeedsTab(tab, feed.index, h, v, ctx.feedHeaders);
+                };
+                update(SHEET_HEADERS.time, ctx.now);
+                update(SHEET_HEADERS.guid, result.guid);
+                update(SHEET_HEADERS.status, `${result.status}: ${result.status_text}`);
+            }
+            ctx.info(`Updated row ${feed.index} ${result === null || result === void 0 ? void 0 : result.status}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
+        }
+    }
+    catch (e) {
+        log(logs, errorToString(e), LOG_LEVEL.ERROR);
+    }
+    finally {
+        writeLogs(spreadsheet, logs);
+    }
+}
+/**
+ * Send a message through discord using the webhook.
+ */
+function sendDiscordMessage(embeds, feed, ctx) {
+    var _a;
+    if (!ctx.webhook.value) {
+        return;
+    }
+    const message = {
+        embeds,
+        username: ctx.appname.value,
+        content: String((_a = feed.discord) !== null && _a !== void 0 ? _a : ''),
+        avatar_url: (v => v ? v : undefined)(ctx.avatar_url.value),
+    };
+    // evaluate message contents
+    if (/^[0-9]+$/.test(message.content)) {
+        message.allowed_mentions = { users: [message.content] };
+        message.content = `<@${message.content}>`;
+    }
+    const signature = ctx.signature.value;
+    if (signature && signature.includes('%s')) {
+        message.content = signature.replace('%s', message.content);
+    }
+    const requests = [];
+    if (ctx.bundle.value) {
+        requests.push({
+            method: 'post',
+            payload: JSON.stringify(message),
+            muteHttpExceptions: true,
+            contentType: "application/json"
+        });
+    }
+    else {
+        for (const embed of message.embeds) {
+            let payload = { ...message };
+            payload.embeds = [embed];
+            requests.push({
+                method: 'post',
+                payload: JSON.stringify(payload),
+                muteHttpExceptions: true,
+                contentType: "application/json"
+            });
+        }
+    }
+    for (let i = 0; i < requests.length; i++) {
+        const response = UrlFetchApp.fetch(ctx.webhook.value, requests[i]);
+        if (response.getResponseCode() != 200) {
+            throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
+        }
+    }
+}
+function onOpen() {
+    var ui = SpreadsheetApp.getUi();
+    // Or DocumentApp, SlidesApp or FormApp.
+    ui.createMenu('RSS Updater')
+        .addItem('Run', 'run')
+        .addItem('Setup', 'setup')
+        .addToUi();
+}
+/**
+ * Executes run when triggered by timer.
+ */
+function timerTrigger() {
+    run();
 }
 function doGet(e) {
     let params = JSON.stringify(e);

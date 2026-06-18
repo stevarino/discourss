@@ -1,7 +1,7 @@
-export declare const DEFAULT_APP_NAME = "Sheets RSS to Discord";
-export declare const FEEDS_TAB = "feeds";
-export declare const SETTINGS_TAB = "settings";
-export declare const LOGS_TAB = "logs";
+/**
+ * common.js - common interfaces, types, and constants.
+ */
+export declare const DEFAULT_APP_NAME = "DiscouRSS";
 export interface Feed {
     index: number;
     feed?: string;
@@ -16,8 +16,8 @@ export type SafeFeed = Feed & {
 };
 export type FeedLookup = Record<keyof Feed, string | number | undefined>;
 export interface Embed {
-    title: string;
-    url: string;
+    title?: string;
+    url?: string;
     description?: string;
     thumbnail?: {
         url: string;
@@ -59,45 +59,18 @@ export interface Result {
     sheets_update?: [SHEET_HEADERS_FIELDS, string | number][];
 }
 export type LOG_RECORD = [number, LOG_LEVEL, string];
-export interface Settings {
-    appname: string;
-    avatar_url?: string;
-    webhook?: string;
-    signature: string;
-    image_format: "image" | "thumbnail" | "none";
-    bundle: boolean;
-    feed_pattern: string;
-    feed_limit: number;
-    feed_frequency: number;
-    feed_pattern_re: RegExp;
-    now: number;
-    debug?: boolean;
-    fetch: (url: string, params: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions) => void;
-    logs: LOG_RECORD[];
-    log: (level: LOG_LEVEL, message: string) => void;
-    error: (message: string) => void;
-    warn: (message: string) => void;
-    info: (message: string) => void;
+type maybeError = string | Error | LOG_RECORD;
+export declare function errorToString(e: unknown): string;
+export declare function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD;
+export declare function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void;
+export interface Context {
+    spreadsheet: Spreadsheet;
+    feedHeaders: CELL_VALUE[];
+    feedPatternRe: RegExp;
+    error(message: string): void;
+    warn(message: string): void;
+    info(message: string): void;
 }
-export type FeedSettings = Settings & {
-    url?: string;
-    discord?: string | number;
-    guid?: string;
-};
-export declare enum SETTINGS_FIELDS {
-    appname = "appname",
-    avatar_url = "avatar_url",
-    webhook = "webhook",
-    signature = "signature",
-    image_format = "image_format",
-    bundle = "bundle",
-    feed_pattern = "feed_pattern",
-    feed_limit = "feed_limit",
-    feed_frequency = "feed_frequency"
-}
-export type SettingsRecord = Record<SETTINGS_FIELDS, string | number | boolean>;
-export declare const DEFAULT_SETTINGS: Settings;
-export declare function getDefaultSettings(): Settings;
 export interface SHEET_HEADER_TYPES {
     label: string;
     help: string;
@@ -106,3 +79,35 @@ export type SHEET_HEADERS_FIELDS = 'index' | 'feed' | 'discord' | 'time' | 'guid
 export declare const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES>;
 export declare const EXPECTED_HEADERS: string[];
 export declare const HEADER_LOOKUP: Record<string, SHEET_HEADERS_FIELDS>;
+/** Sheets Interfaces */
+export type CELL_VALUE = string | number | boolean;
+export interface Spreadsheet {
+    getSheetByName(name: string): Worksheet | null;
+    insertSheet(name: string): Worksheet;
+}
+export interface Worksheet {
+    getLastRow(): number;
+    getDataRange(): Range;
+    getRange(row: number, column: number, rowCount: number, colCount: number): Range;
+    autoResizeColumns(startColumn: number, numColumns: number): void;
+    setColumnWidth(column: number, size: number): void;
+    getColumnWidth(column: number): number;
+    autoResizeRows(startRow: number, numRows: number): void;
+}
+interface Range {
+    getValues(): CELL_VALUE[][];
+    setValues(values: CELL_VALUE[][]): void;
+    setBackground(color: string): void;
+    setTextStyle(style: StyleBuilderFinal): void;
+    clear(): void;
+    setWrap(isWrapped: boolean): void;
+}
+interface StyleBuilderFinal {
+}
+export interface StyleBuilder {
+    setFontSize(size: number): StyleBuilder;
+    setBold(isBold: boolean): StyleBuilder;
+    setForegroundColor(color: string): StyleBuilder;
+    build(): StyleBuilderFinal;
+}
+export {};

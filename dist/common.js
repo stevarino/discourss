@@ -1,7 +1,7 @@
-export const DEFAULT_APP_NAME = 'Sheets RSS to Discord';
-export const FEEDS_TAB = 'feeds';
-export const SETTINGS_TAB = 'settings';
-export const LOGS_TAB = 'logs';
+/**
+ * common.js - common interfaces, types, and constants.
+ */
+export const DEFAULT_APP_NAME = 'DiscouRSS';
 export var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";
@@ -18,41 +18,27 @@ export var LOG_LEVEL;
     LOG_LEVEL[LOG_LEVEL["INFO"] = 2] = "INFO";
 })(LOG_LEVEL || (LOG_LEVEL = {}));
 ;
-export var SETTINGS_FIELDS;
-(function (SETTINGS_FIELDS) {
-    SETTINGS_FIELDS["appname"] = "appname";
-    SETTINGS_FIELDS["avatar_url"] = "avatar_url";
-    SETTINGS_FIELDS["webhook"] = "webhook";
-    SETTINGS_FIELDS["signature"] = "signature";
-    SETTINGS_FIELDS["image_format"] = "image_format";
-    SETTINGS_FIELDS["bundle"] = "bundle";
-    SETTINGS_FIELDS["feed_pattern"] = "feed_pattern";
-    SETTINGS_FIELDS["feed_limit"] = "feed_limit";
-    SETTINGS_FIELDS["feed_frequency"] = "feed_frequency";
-})(SETTINGS_FIELDS || (SETTINGS_FIELDS = {}));
-export const DEFAULT_SETTINGS = {
-    now: 0,
-    appname: 'Sheets RSS',
-    signature: '%s Posted:',
-    feed_pattern: '^https://',
-    feed_limit: 5,
-    feed_frequency: 3600,
-    image_format: 'image',
-    bundle: false,
-    feed_pattern_re: new RegExp('^https://'),
-    fetch: (url, params) => UrlFetchApp.fetch(url, params),
-    logs: [],
-    log: function (level, message) { this.logs.push([new Date().getTime(), level, message]); },
-    error: function (message) { this.log(LOG_LEVEL.ERROR, message); },
-    warn: function (message) { this.log(LOG_LEVEL.WARNING, message); },
-    info: function (message) { this.log(LOG_LEVEL.INFO, message); },
-};
-export function getDefaultSettings() {
-    // return a new Settings object.
-    return {
-        ...DEFAULT_SETTINGS,
-        now: new Date().getTime(),
-    };
+export function errorToString(e) {
+    // LOG_RECORD
+    if (Array.isArray(e) && typeof e[2] === 'string') {
+        return e[2];
+    }
+    if (e instanceof Error) {
+        if (e.stack) {
+            return `${e.message}\n${e.stack}`;
+        }
+        return e.message;
+    }
+    return `${e}`;
+}
+export function errorToLogRecord(e, level) {
+    return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
+}
+export function log(logs, message, level) {
+    if (!Array.isArray(message)) {
+        message = errorToLogRecord(message, level !== null && level !== void 0 ? level : LOG_LEVEL.INFO);
+    }
+    logs.push(message);
 }
 export const SHEET_HEADERS = {
     index: {

@@ -1,7 +1,8 @@
-export const DEFAULT_APP_NAME = 'Sheets RSS to Discord';
-export const FEEDS_TAB = 'feeds';
-export const SETTINGS_TAB = 'settings';
-export const LOGS_TAB = 'logs';
+/**
+ * common.js - common interfaces, types, and constants.
+ */
+
+export const DEFAULT_APP_NAME = 'DiscouRSS';
 
 export interface Feed {
   index: number,
@@ -12,13 +13,13 @@ export interface Feed {
   status?: string,
 }
 
-export type SafeFeed = Feed & {time: number, feed: string}
+export type SafeFeed = Feed & {time: number, feed: string};
 
 export type FeedLookup = Record<keyof Feed, string|number|undefined>;
 
 export interface Embed {
-  title: string,
-  url: string,
+  title?: string,
+  url?: string,
   description?: string,
   thumbnail?: {url: string}|undefined,
   image?: {url: string}|undefined,
@@ -56,80 +57,42 @@ export interface Result {
 
 export type LOG_RECORD = [number, LOG_LEVEL, string];
 
-export interface Settings {
-  // APP SETTINGS (setable through sheets "settings" tab):
-  appname: string, // Application display name
-  avatar_url?: string, // Application avatar image
-  webhook?: string, // Discord webhook
-  signature: string, // How to tag the user
-  image_format: "image"|"thumbnail"|"none", // How to embed the image
-  bundle: boolean, // Whether or not to bundle embeds together in a single message.
-  feed_pattern: string, // Regex used to validate feed URL
-  feed_limit: number, // Number of feeds to read at a time
-  feed_frequency: number, // How often to check the feeds in seconds.
- 
-  // RUNTIME SETTINGS:
-  feed_pattern_re: RegExp, // Compiled regex of feed URL pattern 
-  now: number, // runtime epoch
-  debug?: boolean, // Whether to include debug information.
-   // fetch function call
-  fetch: (url: string, params: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions) => void,
 
-  logs: LOG_RECORD[],
-  log: (level: LOG_LEVEL, message: string) => void,
-  error: (message: string) => void,
-  warn: (message: string) => void,
-  info: (message: string) => void,
+type maybeError = string|Error|LOG_RECORD;
+
+export function errorToString(e: unknown): string {
+  // LOG_RECORD
+  if (Array.isArray(e) && typeof e[2] === 'string') {
+    return e[2];
+  }
+  if (e instanceof Error) {
+    if (e.stack) {
+      return `${e.message}\n${e.stack}`;
+    }
+    return e.message;
+  }
+  return `${e}`;
 }
 
-export type FeedSettings = Settings & {
-  url?: string, // Current RSS feed.
-  discord?: string|number, // Discord username (snowflake) for current feed.
-  guid?: string, // Previously scanned GUID, '' indicates a new feed and
-                 // all items are not new, '0' indicates treat all items as new.
+export function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD{
+  return [new Date().getTime(), level ?? LOG_LEVEL.ERROR, errorToString(e)];
 }
 
-export enum SETTINGS_FIELDS {
-  appname = 'appname',
-  avatar_url = 'avatar_url',
-  webhook = 'webhook',
-  signature = 'signature',
-  image_format = 'image_format',
-  bundle = 'bundle',
-  feed_pattern = 'feed_pattern',
-  feed_limit = 'feed_limit',
-  feed_frequency = 'feed_frequency',
+export function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void {
+  if (!Array.isArray(message)) {
+    message = errorToLogRecord(message, level ?? LOG_LEVEL.INFO);
+  }
+  logs.push(message as LOG_RECORD);
 }
 
-export type SettingsRecord = Record<SETTINGS_FIELDS, string|number|boolean>;
-
-
-export const DEFAULT_SETTINGS : Settings = {
-  now: 0,
-  appname: 'Sheets RSS',
-  signature: '%s Posted:',
-  feed_pattern: '^https://',
-  feed_limit: 5,
-  feed_frequency: 3600,
-  image_format: 'image',
-  bundle: false,
-
-  feed_pattern_re: new RegExp('^https://'),
-  fetch: (url, params) => UrlFetchApp.fetch(url, params),
-
-  logs: [],
-  log: function(level, message) {this.logs.push([new Date().getTime(), level, message])},
-  error: function(message) {this.log(LOG_LEVEL.ERROR, message)},
-  warn: function(message) {this.log(LOG_LEVEL.WARNING, message)},
-  info: function(message) {this.log(LOG_LEVEL.INFO, message)},
-}
-
-export function getDefaultSettings(): Settings {
-  // return a new Settings object.
-  return {
-    ...DEFAULT_SETTINGS,
-    now: new Date().getTime(),
-  };
+// light version of Settings
+export interface Context {
+  spreadsheet: Spreadsheet,
+  feedHeaders: CELL_VALUE[],
+  feedPatternRe: RegExp,
+  error(message: string): void,
+  warn(message: string): void,
+  info(message: string): void,
 }
 
 export interface SHEET_HEADER_TYPES {
@@ -164,10 +127,45 @@ export const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES> = {
   },
 } as const;
 
-
 export const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(
   v => v.help !== '').map(v => v.label) as string[];
 export const HEADER_LOOKUP = Object.fromEntries(
   Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k])
 ) as Record<string, SHEET_HEADERS_FIELDS>;
+
+/** Sheets Interfaces */
+export type CELL_VALUE = string | number | boolean;
+
+export interface Spreadsheet {
+  getSheetByName(name: string): Worksheet|null,
+  insertSheet(name: string): Worksheet,
+}
+
+export interface Worksheet {
+  getLastRow(): number,
+  getDataRange(): Range,
+  getRange(row: number, column: number, rowCount: number, colCount: number): Range
+  autoResizeColumns(startColumn: number, numColumns: number): void,
+  setColumnWidth(column: number, size: number): void,
+  getColumnWidth(column: number): number,
+  autoResizeRows(startRow: number, numRows: number): void,
+}
+
+interface Range {
+  getValues(): CELL_VALUE[][],
+  setValues(values: CELL_VALUE[][]): void,
+  setBackground(color: string): void,
+  setTextStyle(style: StyleBuilderFinal): void,
+  clear(): void,
+  setWrap(isWrapped: boolean): void
+}
+
+interface StyleBuilderFinal {}
+
+export interface StyleBuilder {
+  setFontSize(size: number): StyleBuilder,
+  setBold(isBold: boolean): StyleBuilder,
+  setForegroundColor(color: string): StyleBuilder
+  build(): StyleBuilderFinal
+}
 
