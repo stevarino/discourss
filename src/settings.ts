@@ -99,8 +99,8 @@ export class Context {
     const defaults: [string, CELL_VALUE][] = [];
     const context = new Context(null as unknown as Spreadsheet);
     for (const [key, val] of Object.entries(context)) {
-      if (val.instanceof(Setting)) {
-        defaults.push([key, val]);
+      if (val instanceof Setting) {
+        defaults.push([key, val.value]);
       }
     }
     return defaults;

@@ -55,8 +55,8 @@ export class Context {
         const defaults = [];
         const context = new Context(null);
         for (const [key, val] of Object.entries(context)) {
-            if (val.instanceof(Setting)) {
-                defaults.push([key, val]);
+            if (val instanceof Setting) {
+                defaults.push([key, val.value]);
             }
         }
         return defaults;

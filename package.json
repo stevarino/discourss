@@ -10,7 +10,7 @@
     "reset": "rm -r dist/*",
     "login": "clasp login",
     "push": "clasp push",
-    "push-test": "clasp deploy -i AKfycbwDK_O1ump1W5IqTJCaxS40237v2zfGns4Hcms6nu-E",
+    "open-web": "clasp open-web-app AKfycbwDK_O1ump1W5IqTJCaxS40237v2zfGns4Hcms6nu-E",
     "push-version": "clasp create-version \"$(grep -oP '\"version\": \"\\K[^\"]+' package.json)\"",
     "build": "tsc && npx eslint . && nodejs dist/build.js ",
     "push-patch": "npm version patch && npm run push-version",
