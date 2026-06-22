@@ -7,10 +7,12 @@ import * as fs from 'node:fs/promises';
 import { rollup } from 'rollup';
 import path from 'path';
 import { execSync } from 'node:child_process';
+import { marked } from 'marked';
 import { version } from './version.js';
 const entryFile = 'dist/index.js';
 const directory = 'dist/clasp';
 const bundleFile = directory + '/code.gs';
+const PROD_DEPLOYMENT = 'AKfycbxtvC7at1Ru1wBUFUexXzP2Pn5SSHCyil7U_Cwrr8Jk_WEqjNwP-cTQSOw4rHQt_y2IJQ';
 const toCopy = [
     'data/appsscript.json'
 ];
@@ -53,7 +55,7 @@ async function getHeadVersion() {
     console.log((_a = Array.from(matches).pop()) === null || _a === void 0 ? void 0 : _a[0]);
 }
 async function writeVersion() {
-    const content = `export const version = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';`;
+    const content = `export const version = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';\n`;
     await fs.writeFile('src/version.ts', content);
     await fs.writeFile('dist/version.js', content);
 }
@@ -62,8 +64,36 @@ async function printVersion() {
     const json = JSON.parse(content);
     console.log(`${json.version} (${version})`);
 }
+async function buildWeb() {
+    const base_dir = './doc/md/';
+    const output_dir = './doc/html/';
+    // empty the output directory
+    for (let filename of await fs.readdir(output_dir)) {
+        await fs.rm(path.join(output_dir, filename), { recursive: true, force: true });
+    }
+    let template = await fs.readFile(path.join(base_dir, 'template.html'), { encoding: 'utf-8' });
+    const replacements = [
+        [/__SCRIPT_URL__/g, `https://script.google.com/macros/s/${PROD_DEPLOYMENT}/exec`]
+    ];
+    for (const [regex, value] of replacements) {
+        template = template.replace(regex, value);
+    }
+    const files = await fs.readdir(base_dir, { recursive: true });
+    for (const filename of files) {
+        if (!filename.endsWith('.md')) {
+            continue;
+        }
+        const markdown = await fs.readFile(path.join(base_dir, filename), { encoding: 'utf-8' });
+        const html = template.replace('__CONTENT__', await marked(markdown));
+        const output_filename = path.join(output_dir, filename).replace(/\.md$/, '.html');
+        await fs.mkdir(path.dirname(output_filename), { recursive: true });
+        await fs.writeFile(output_filename, html);
+        console.log(`Wrote ${output_filename}`);
+    }
+}
 async function build() {
     await writeVersion();
+    await buildWeb();
     const bundle = await rollup({
         input: entryFile,
     });
@@ -94,6 +124,9 @@ async function run() {
     }
     else if (process.argv.includes('--head')) {
         getHeadVersion();
+    }
+    else if (process.argv.includes('--web')) {
+        buildWeb();
     }
     else if (process.argv.includes('--build')) {
         build();

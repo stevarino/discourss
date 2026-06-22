@@ -342,7 +342,7 @@ function writeLogs(sheet, logs) {
         const range = tab.getRange(1, 1, rows.length, rows[0].length);
         range.setValues(rows);
         tab.autoResizeRows(1, Math.max(rows.length, rowCount));
-        tab.getRange(1, colCount, rows.length, 1).setWrap(true);
+        tab.getRange(1, colCount, rows.length, 1).setWrap(true).setVerticalAlignment('top');
     }
     catch (e) {
         console.error(errorToString(e));
@@ -523,7 +523,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-145-143-487';
+const version = '1-782-168-736-701';
 
 /**
  * index.js - main entry point for code
