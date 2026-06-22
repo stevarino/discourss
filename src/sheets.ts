@@ -127,7 +127,7 @@ export function writeLogs(sheet: Spreadsheet, logs: LOG_RECORD[]): void {
     const range = tab.getRange(1, 1, rows.length, rows[0].length);
     range.setValues(rows);
     tab.autoResizeRows(1, Math.max(rows.length, rowCount));
-    tab.getRange(1, colCount, rows.length, 1).setWrap(true);
+    tab.getRange(1, colCount, rows.length, 1).setWrap(true).setVerticalAlignment('top');
   } catch (e) {
     console.error(errorToString(e));
   }

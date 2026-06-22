@@ -56,7 +56,8 @@ export declare class MockRange {
     setValues(values: CELL_VALUE[][]): void;
     setBackground(): MockRange;
     setTextStyle(): MockRange;
-    clear(): void;
+    setVerticalAlignment(): MockRange;
+    clear(): MockRange;
     setWrap(): MockRange;
 }
 declare class MockWorksheet implements Worksheet {

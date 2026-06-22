@@ -142,12 +142,14 @@ export class MockRange {
     }
     setBackground() { return this; }
     setTextStyle() { return this; }
+    setVerticalAlignment() { return this; }
     clear() {
         for (let r = 0; r < this.numRows; r++) {
             for (let c = 0; c < this.numCols; c++) {
                 this.sheet.deleteCell(this.startRow - 1 + r, this.startCol - 1 + c);
             }
         }
+        return this;
     }
     setWrap() { return this; }
 }

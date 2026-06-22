@@ -89,10 +89,11 @@ export interface Worksheet {
 interface Range {
     getValues(): CELL_VALUE[][];
     setValues(values: CELL_VALUE[][]): void;
-    setBackground(color: string): void;
-    setTextStyle(style: StyleBuilderFinal): void;
-    clear(): void;
-    setWrap(isWrapped: boolean): void;
+    setBackground(color: string): Range;
+    setTextStyle(style: StyleBuilderFinal): Range;
+    clear(): Range;
+    setWrap(isWrapped: boolean): Range;
+    setVerticalAlignment(alignment: "top" | "middle" | "bottom" | null): Range;
 }
 interface StyleBuilderFinal {
 }

@@ -1,1 +1,1 @@
-export declare const version = "1-782-109-134-611";
+export declare const version: string;
