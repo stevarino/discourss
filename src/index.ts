@@ -54,16 +54,14 @@ export function run(ctx?: Context): void {
         sendDiscordMessage(result.message.embeds, feed, ctx)
       }
       // update feed state in spreadsheet
-      if (result?.guid || result?.status === STATUS.ERROR) {
-        const update = (h: SHEET_HEADER_TYPES, v: CELL_VALUE) => {
-          updateFeedsTab(tab, feed.index, h, v, ctx!.feedHeaders)
-        }
-        update(SHEET_HEADERS.time, ctx.now);
-        if (result.guid) {
-          update(SHEET_HEADERS.guid, result.guid);
-        }
-        update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
+      const update = (h: SHEET_HEADER_TYPES, v: CELL_VALUE) => {
+        updateFeedsTab(tab, feed.index, h, v, ctx!.feedHeaders)
       }
+      update(SHEET_HEADERS.time, ctx.now);
+      if (result.guid) {
+        update(SHEET_HEADERS.guid, result.guid);
+      }
+      update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
       ctx.info(`Updated row ${feed.index+1} ${STATUS[result.status]}: ${result?.status_text}`);
 
       count += 1;

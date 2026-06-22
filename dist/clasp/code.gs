@@ -548,16 +548,14 @@ function run(ctx) {
                 sendDiscordMessage(result.message.embeds, feed, ctx);
             }
             // update feed state in spreadsheet
-            if ((result === null || result === void 0 ? void 0 : result.guid) || (result === null || result === void 0 ? void 0 : result.status) === STATUS.ERROR) {
-                const update = (h, v) => {
-                    updateFeedsTab(tab, feed.index, h, v, ctx.feedHeaders);
-                };
-                update(SHEET_HEADERS.time, ctx.now);
-                if (result.guid) {
-                    update(SHEET_HEADERS.guid, result.guid);
-                }
-                update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
+            const update = (h, v) => {
+                updateFeedsTab(tab, feed.index, h, v, ctx.feedHeaders);
+            };
+            update(SHEET_HEADERS.time, ctx.now);
+            if (result.guid) {
+                update(SHEET_HEADERS.guid, result.guid);
             }
+            update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
             ctx.info(`Updated row ${feed.index + 1} ${STATUS[result.status]}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
             count += 1;
             if (count >= ctx.feed_limit.value) {
