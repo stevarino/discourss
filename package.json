@@ -13,10 +13,7 @@
     "open-web": "clasp open-web-app AKfycbwDK_O1ump1W5IqTJCaxS40237v2zfGns4Hcms6nu-E",
     "push-version": "clasp create-version \"$(grep -oP '\"version\": \"\\K[^\"]+' package.json)\"",
     "build": "tsc && npx eslint . && nodejs dist/build.js ",
-    "push-patch": "npm version patch && npm run push-version",
-    "push-minor": "npm version minor && npm run push-version",
-    "push-major": "npm version major && npm run push-version",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

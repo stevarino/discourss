@@ -1,9 +1,53 @@
 
-import {
-  Spreadsheet, LOG_RECORD, CELL_VALUE, log, LOG_LEVEL, DEFAULT_APP_NAME,
-  errorToString
-} from './common.js';
-import {readSettingsTab} from './sheets.js';
+import * as fetch from './fetch.js';
+import { CELL_VALUE, Spreadsheet, CONFIG } from './common.js';
+
+const DEFAULT_APP_NAME = 'DiscouRSS';
+
+export type LOG_RECORD = [number, LOG_LEVEL, string];
+
+export enum LOG_LEVEL {
+  ERROR, WARNING, INFO
+};
+
+type maybeError = string|Error|LOG_RECORD;
+
+export function errorToString(e: unknown): string {
+  // LOG_RECORD
+  if (Array.isArray(e) && typeof e[2] === 'string') {
+    return e[2];
+  }
+  if (e instanceof Error) {
+    if (e.stack) {
+      return `${e.message}\n${e.stack}`;
+    }
+    return e.message;
+  }
+  return `${e}`;
+}
+
+export function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD{
+  return [new Date().getTime(), level ?? LOG_LEVEL.ERROR, errorToString(e)];
+}
+
+export function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void {
+  if (!Array.isArray(message)) {
+    message = errorToLogRecord(message, level ?? LOG_LEVEL.INFO);
+  }
+  if (CONFIG.LOG_TO_STDERR) {
+    switch(message[1]) {
+      case LOG_LEVEL.ERROR:
+        console.error(LOG_LEVEL[message[1]], message[2]);
+        break;
+      case LOG_LEVEL.WARNING:
+        console.warn(LOG_LEVEL[message[1]], message[2]);
+        break;
+      default:
+        console.info(LOG_LEVEL[message[1]], message[2]);
+    }
+  }
+  logs.push(message);
+}
 
 type SettingsValidator = [
   (value: CELL_VALUE) => boolean,
@@ -18,6 +62,10 @@ class Setting<T extends CELL_VALUE> {
     this.value = value;
     this.help = help;
     this.validators = validators ?? [];
+  }
+
+  toString(): string {
+    return JSON.stringify(this.value);
   }
 
   set(value: CELL_VALUE): string|undefined {
@@ -84,26 +132,62 @@ export class Context {
   feedHeaders: CELL_VALUE[] = [];
   logs: LOG_RECORD[] = [];
   debug = false;
+  fetcher: fetch.Fetcher;
 
   now: number;
   feedPatternRe: RegExp;
   spreadsheet: Spreadsheet;
 
-  constructor(spreadsheet: Spreadsheet) {
+  defaults: [string, CELL_VALUE, string][] = [];
+
+  constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]) {
+    this.fetcher = new fetch.Fetcher();
     this.now = new Date().getTime();
     this.feedPatternRe = new RegExp('^https://');
     this.spreadsheet = spreadsheet;
+    if (logs !== undefined) {
+      this.logs = logs;
+    }
+    this.defaults = this.getDefaults();
   }
 
-  static getDefaults(): [string, CELL_VALUE][] {
-    const defaults: [string, CELL_VALUE][] = [];
-    const context = new Context(null as unknown as Spreadsheet);
-    for (const [key, val] of Object.entries(context)) {
+  getDefaults(): [string, CELL_VALUE, string][] {
+    if (this.defaults.length) {
+      return this.defaults;
+    }
+    const defaults: [string, CELL_VALUE, string][] = [];
+    for (const [key, val] of Object.entries(this)) {
       if (val instanceof Setting) {
-        defaults.push([key, val.value]);
+        defaults.push([key, val.value, val.help]);
       }
     }
     return defaults;
+  }
+
+  setSettings(settings: [string, CELL_VALUE][]): string[] {
+    const errors: string[] = [];
+    for (const [key, val] of settings) {
+      if (typeof key !== 'string' || !this.hasOwnProperty(key)) {
+        continue;
+      }
+      const setting = (this as any)[key];
+      if (!(setting instanceof Setting)) {
+        continue;
+      }
+      const error = setting.set(val);
+      if (error !== undefined) {
+        errors.push(`${key}: ${error}`);
+        continue;
+      }
+
+      if (key === 'feed_pattern') {
+        this.feedPatternRe = new RegExp(val as string);
+      }
+    }
+    if (!errors.length) {
+      errors.push(...this.validate())
+    }
+    return errors;
   }
 
   validate(): string[] {
@@ -119,8 +203,8 @@ export class Context {
     return errors;
   }
   
-  fetch(url: string, params: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions): void {
-    UrlFetchApp.fetch(url, params);
+  fetch(url: string, params: fetch.FetchRequest): fetch.FetchResponse {
+    return this.fetcher.fetch(url, params)
   }
 
   log(level: LOG_LEVEL, message: string): void {
@@ -138,40 +222,4 @@ export class Context {
   info(message: string): void {
     log(this.logs, message, LOG_LEVEL.INFO)
   }
-}
-
-// export type SettingsRecord = Record<SETTINGS_FIELDS, string|number|boolean>;
-
-/**
- * Returns a settings object.
- */
-export function getContext(sheet: Spreadsheet, logs: LOG_RECORD[]): Context|undefined {
-  const context = new Context(sheet);
-  context.logs = logs;
-  const [, data] = readSettingsTab(sheet);
-  const errors: string[] = [];
-  for (const [key, val] of data) {
-    if (typeof key !== 'string' || !context.hasOwnProperty(key)) {
-      continue;
-    }
-    const setting = context[key as keyof Context];
-    if (!(setting instanceof Setting)) {
-      continue;
-    }
-    const error = setting.set(val);
-    if (error != undefined) {
-      errors.push(`${key}: ${error}`);
-    }
-  }
-  if (!errors.length) {
-    errors.push(...context.validate())
-  }
-  if (errors.length) {
-    const msg = `Errors occurred during startup: ${errors.join('; ')}`;
-    log(logs, msg, LOG_LEVEL.ERROR);
-    throw new Error('Unable to construct Context');
-  }
-
-  context.feedPatternRe = new RegExp(context.feed_pattern.value);
-  return context;
 }

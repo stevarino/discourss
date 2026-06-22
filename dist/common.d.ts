@@ -1,7 +1,9 @@
 /**
  * common.js - common interfaces, types, and constants.
  */
-export declare const DEFAULT_APP_NAME = "DiscouRSS";
+export declare const CONFIG: {
+    LOG_TO_STDERR: boolean;
+};
 export interface Feed {
     index: number;
     feed?: string;
@@ -46,11 +48,6 @@ export declare enum STATUS {
     ERROR = 3,
     NONE = 4
 }
-export declare enum LOG_LEVEL {
-    ERROR = 0,
-    WARNING = 1,
-    INFO = 2
-}
 export interface Result {
     status: STATUS;
     status_text: string;
@@ -58,12 +55,7 @@ export interface Result {
     message?: Message;
     sheets_update?: [SHEET_HEADERS_FIELDS, string | number][];
 }
-export type LOG_RECORD = [number, LOG_LEVEL, string];
-type maybeError = string | Error | LOG_RECORD;
-export declare function errorToString(e: unknown): string;
-export declare function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD;
-export declare function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void;
-export interface Context {
+export interface BaseContext {
     spreadsheet: Spreadsheet;
     feedHeaders: CELL_VALUE[];
     feedPatternRe: RegExp;
@@ -75,7 +67,7 @@ export interface SHEET_HEADER_TYPES {
     label: string;
     help: string;
 }
-export type SHEET_HEADERS_FIELDS = 'index' | 'feed' | 'discord' | 'time' | 'guid' | 'status';
+type SHEET_HEADERS_FIELDS = 'index' | 'feed' | 'discord' | 'time' | 'guid' | 'status';
 export declare const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES>;
 export declare const EXPECTED_HEADERS: string[];
 export declare const HEADER_LOOKUP: Record<string, SHEET_HEADERS_FIELDS>;

@@ -4,14 +4,10 @@
 
 import {
   SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP,
-  LOG_LEVEL, LOG_RECORD, errorToString,
   Feed, FeedLookup, SafeFeed, Spreadsheet, StyleBuilder,
-  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES, Context
+  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES, BaseContext
 } from './common.js';
-
-export const defaults = {
-  settings: [] as [string, CELL_VALUE][],
-}
+import {LOG_LEVEL, LOG_RECORD, errorToString, Context} from './context.js'
 
 const SETTINGS_TAB = 'settings';
 const FEEDS_TAB = 'feeds';
@@ -78,13 +74,13 @@ export function readSettingsTab(sheet: Spreadsheet): [Worksheet, CELL_VALUE[][]]
   return [settingsTab, settingsTab.getDataRange().getValues()]
 }
 
-export function updateSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE][]): void {
+export function updateSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]): void {
   const [tab, values] = readSettingsTab(sheet);
   const exists = new Set(values.map(row => row[0]).filter(v => v));
-  const toAdd: [string, CELL_VALUE][] = [];
-  for (const [key, val] of defaults) {
+  const toAdd: [string, CELL_VALUE, string][] = [];
+  for (const [key, val, help] of defaults) {
     if (!exists.has(key)) {
-      toAdd.push([key, val])
+      toAdd.push([key, val, help])
     }
   }
   if (toAdd.length) {
@@ -110,7 +106,7 @@ export function writeLogs(sheet: Spreadsheet, logs: LOG_RECORD[]): void {
     let rowCount = 0;
     if (tab === null) {
       tab = sheet.insertSheet(LOGS_TAB);
-      tab.getRange(0, 0, rows.length, rows[0].length).setValues(rows);
+      tab.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
       tab.autoResizeColumns(1, colCount);
       // expand the last columnn
       tab.setColumnWidth(colCount, tab.getColumnWidth(colCount) * 8);
@@ -127,10 +123,10 @@ export function writeLogs(sheet: Spreadsheet, logs: LOG_RECORD[]): void {
         }
       }
     }
-    const range = tab.getRange(0, 0, rows.length, rows[0].length);
+    const range = tab.getRange(1, 1, rows.length, rows[0].length);
     range.setValues(rows);
     tab.autoResizeRows(1, Math.max(rows.length, rowCount));
-    tab.getRange(0, colCount, rows.length, 1).setWrap(true);
+    tab.getRange(1, colCount, rows.length, 1).setWrap(true);
   } catch (e) {
     console.error(errorToString(e));
   }
@@ -140,7 +136,7 @@ export function getFeedColumn(feedHeaders: CELL_VALUE[], header: string): number
   return feedHeaders.indexOf(header)
 }
 
-export function readFeedsTab(ctx: Context): [Worksheet, SafeFeed[]] {//, spreadsheet: Spreadsheet, feedHeaders: CELL_VALUE[], feedPattern: RegExp, logger: Logger): SafeFeed[] {
+export function readFeedsTab(ctx: BaseContext): [Worksheet, SafeFeed[]] {//, spreadsheet: Spreadsheet, feedHeaders: CELL_VALUE[], feedPattern: RegExp, logger: Logger): SafeFeed[] {
   const tab = ctx.spreadsheet.getSheetByName(FEEDS_TAB);
   const feeds: SafeFeed[] = [];
   if (!tab) {
@@ -149,7 +145,8 @@ export function readFeedsTab(ctx: Context): [Worksheet, SafeFeed[]] {//, spreads
   const values = tab.getDataRange().getValues() as (string | number)[][];
   for (let i = 0; i < values.length; i++) {
     // setup columns for dict-like lookup.
-    if (ctx.feedHeaders.length === 0) {
+    if (values[i].includes(SHEET_HEADERS.feed.label)) {
+      ctx.feedHeaders.length = 0;
       ctx.feedHeaders.push(...values[i]);
       const missing = [];
       for (const v of EXPECTED_HEADERS) {
@@ -162,6 +159,7 @@ export function readFeedsTab(ctx: Context): [Worksheet, SafeFeed[]] {//, spreads
       }
       continue;
     }
+    // console.log(values[i].map(String).join('\t'));
 
     const feed: Feed = {index: i};
     // iterate across the columns, using the header to map the value to the Feed object
@@ -188,30 +186,15 @@ export function readFeedsTab(ctx: Context): [Worksheet, SafeFeed[]] {//, spreads
 
 export function updateFeedsTab(tab: Worksheet, row: number, column: SHEET_HEADER_TYPES, value: CELL_VALUE, feedHeaders: CELL_VALUE[]): void {
   const col = getFeedColumn(feedHeaders, column.label);
-  tab.getRange(row, col, 1, 1).setValues([[value]])
+  tab.getRange(row + 1, col + 1, 1, 1).setValues([[value]])
   return;
-  // for (const [header, value] of [
-  //   [SHEET_HEADERS.time.label, settings.now],
-  //   [SHEET_HEADERS.guid.label, guid],
-  //   [SHEET_HEADERS.status.label, status],
-  // ] as [string, number|string][]) {
-  //   const offset = feedHeaders.indexOf(header);
-  //   if (offset === -1) {
-  //     // this should never fire.
-  //     throw new Error(`Unable to find column "${header}"`);
-  //   }
-  //   sheet
-  //     .getRange(index, offset + 1, 1, 1)
-  //     .setValues([[value]])
-  // }
 }
 
 
-
 export function setup(): void {
-  const sheet = SpreadsheetApp.getActive();
-  setupFeedsTab(sheet);
-  setupSettingsTab(sheet);
+  const ctx = new Context(SpreadsheetApp.getActive());
+  setupFeedsTab(ctx.spreadsheet);
+  setupSettingsTab(ctx.spreadsheet, ctx.defaults);
   setupTriggers();
 }
 
@@ -223,7 +206,7 @@ function setupTriggers() {
   }
 }
 
-function setupSettingsTab(sheet: Spreadsheet) {
-  updateSettingsTab(sheet, defaults.settings);
+function setupSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]) {
+  updateSettingsTab(sheet, defaults);
 }
 

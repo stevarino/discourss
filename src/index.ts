@@ -4,53 +4,49 @@
 
 import * as CheerioLib from 'cheerio';
 import {
-  Result, Message,
-  SafeFeed, LOG_LEVEL, LOG_RECORD,
-  errorToString, log, SHEET_HEADERS,
-  CELL_VALUE, SHEET_HEADER_TYPES, Embed,
-  STATUS
+  Result, Message, SafeFeed, SHEET_HEADERS, CELL_VALUE, SHEET_HEADER_TYPES, 
+  Embed, STATUS, Spreadsheet
 } from './common.js';
+import {
+  LOG_LEVEL, LOG_RECORD, errorToString, log, Context
+} from './context.js';
+import { 
+  readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs
+} from './sheets.js';
+import { FetchRequest } from './fetch.js';
+import { processFeed } from './rss.js';
+
+export {setup} from './sheets.js';
 
 declare global {
   const Cheerio: typeof CheerioLib;
 }
-
-export {setup} from './sheets.js';
-import {defaults as sheetsDefaults, readFeedsTab, updateFeedsTab, writeLogs} from './sheets.js'
-import {Context, getContext} from './settings.js'
-import { processFeed } from './rss.js';
-
-sheetsDefaults.settings = Context.getDefaults();
 
 export function run(ctx?: Context): void {
   const spreadsheet = SpreadsheetApp.getActive();
   const logs: LOG_RECORD[] = [];
   try {
     if (!ctx) {
-      ctx = getContext(spreadsheet, logs);
+      ctx = buildContext(spreadsheet, logs);
       if (!ctx) {
         throw new Error('Unable to load Settings.');
       }
     }
     const [tab, feeds] = readFeedsTab(ctx);
+    ctx.info(`Read ${feeds.length} rows`);
 
     let count = 0;
     for (const feed of feeds) {
-      count += 1;
-      if (count > ctx.feed_limit.value) {
-        ctx.info(`hit limit of ${ctx.feed_limit} feeds - stopping`);
-        break;
-      }
-
       let result: Result;
       try {
         result = processFeed(feed, ctx);
       } catch (e) {
+        // even if we fail we want to count it.
+        count += 1;
         ctx.warn(errorToString(e));
         continue
       }
       if (result.status === STATUS.SKIP) {
-        count -= 1;
         continue;
       }
 
@@ -58,15 +54,23 @@ export function run(ctx?: Context): void {
         sendDiscordMessage(result.message.embeds, feed, ctx)
       }
       // update feed state in spreadsheet
-      if (result?.guid) {
+      if (result?.guid || result?.status === STATUS.ERROR) {
         const update = (h: SHEET_HEADER_TYPES, v: CELL_VALUE) => {
           updateFeedsTab(tab, feed.index, h, v, ctx!.feedHeaders)
         }
         update(SHEET_HEADERS.time, ctx.now);
-        update(SHEET_HEADERS.guid, result.guid);
-        update(SHEET_HEADERS.status, `${result.status}: ${result.status_text}`);
+        if (result.guid) {
+          update(SHEET_HEADERS.guid, result.guid);
+        }
+        update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
       }
-      ctx.info(`Updated row ${feed.index} ${result?.status}: ${result?.status_text}`);
+      ctx.info(`Updated row ${feed.index+1} ${STATUS[result.status]}: ${result?.status_text}`);
+
+      count += 1;
+      if (count >= ctx.feed_limit.value) {
+        ctx.info(`hit limit of ${ctx.feed_limit.value} feeds - stopping`);
+        break;
+      }
     }
   } catch (e) {
     log(logs, errorToString(e), LOG_LEVEL.ERROR);
@@ -74,12 +78,18 @@ export function run(ctx?: Context): void {
     writeLogs(spreadsheet, logs);
   }
 }
-  
-interface Request {
-  method: 'get'|'post',
-  payload: string,
-  muteHttpExceptions: true,
-  contentType: string,
+
+function buildContext(sheet: Spreadsheet, logs: LOG_RECORD[]) {
+  const ctx = new Context(sheet, logs);
+  const [, data] = readSettingsTab(sheet);
+  const errors = ctx.setSettings(data as [string, CELL_VALUE][]);
+  if (errors.length) {
+    const msg = `Errors occurred during startup: ${errors.join('; ')}`;
+    log(logs, msg, LOG_LEVEL.ERROR);
+    throw new Error('Unable to construct Context');
+  }
+  ctx.feedPatternRe = new RegExp(ctx.feed_pattern.value);
+  return ctx;
 }
 
 /**
@@ -106,7 +116,7 @@ function sendDiscordMessage(embeds: Embed[], feed: SafeFeed, ctx: Context) {
     message.content = signature.replace('%s', message.content!);
   }
 
-  const requests: Request[] = [];
+  const requests: FetchRequest[] = [];
   if (ctx.bundle.value) {
     requests.push({
       method: 'post',
@@ -128,7 +138,7 @@ function sendDiscordMessage(embeds: Embed[], feed: SafeFeed, ctx: Context) {
   }
 
   for (let i=0; i<requests.length; i++) {
-    const response = UrlFetchApp.fetch(ctx.webhook.value, requests[i]);
+    const response = ctx.fetch(ctx.webhook.value, requests[i]);
     if (response.getResponseCode() != 200) {
       throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
     }

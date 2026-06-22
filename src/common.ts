@@ -2,7 +2,9 @@
  * common.js - common interfaces, types, and constants.
  */
 
-export const DEFAULT_APP_NAME = 'DiscouRSS';
+export const CONFIG = {
+  LOG_TO_STDERR: false,
+};
 
 export interface Feed {
   index: number,
@@ -42,10 +44,6 @@ export enum STATUS {
   NONE,
 };
 
-export enum LOG_LEVEL {
-  ERROR, WARNING, INFO
-};
-
 // Result from parsing a feed.
 export interface Result {
   status: STATUS,
@@ -55,38 +53,8 @@ export interface Result {
   sheets_update?: [SHEET_HEADERS_FIELDS, string|number][],
 }
 
-export type LOG_RECORD = [number, LOG_LEVEL, string];
-
-
-type maybeError = string|Error|LOG_RECORD;
-
-export function errorToString(e: unknown): string {
-  // LOG_RECORD
-  if (Array.isArray(e) && typeof e[2] === 'string') {
-    return e[2];
-  }
-  if (e instanceof Error) {
-    if (e.stack) {
-      return `${e.message}\n${e.stack}`;
-    }
-    return e.message;
-  }
-  return `${e}`;
-}
-
-export function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD{
-  return [new Date().getTime(), level ?? LOG_LEVEL.ERROR, errorToString(e)];
-}
-
-export function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void {
-  if (!Array.isArray(message)) {
-    message = errorToLogRecord(message, level ?? LOG_LEVEL.INFO);
-  }
-  logs.push(message as LOG_RECORD);
-}
-
 // light version of Settings
-export interface Context {
+export interface BaseContext {
   spreadsheet: Spreadsheet,
   feedHeaders: CELL_VALUE[],
   feedPatternRe: RegExp,
@@ -99,7 +67,7 @@ export interface SHEET_HEADER_TYPES {
   label: string,
   help: string,
 }
-export type SHEET_HEADERS_FIELDS = 'index'|'feed'|'discord'|'time'|'guid'|'status';
+type SHEET_HEADERS_FIELDS = 'index'|'feed'|'discord'|'time'|'guid'|'status';
 export const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES> = { // : {[key in keyof Feed]: string} = {
   index: {
     label: 'Index',

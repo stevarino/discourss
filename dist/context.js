@@ -1,10 +1,55 @@
-import { log, LOG_LEVEL, DEFAULT_APP_NAME, errorToString } from './common.js';
-import { readSettingsTab } from './sheets.js';
+import * as fetch from './fetch.js';
+import { CONFIG } from './common.js';
+const DEFAULT_APP_NAME = 'DiscouRSS';
+export var LOG_LEVEL;
+(function (LOG_LEVEL) {
+    LOG_LEVEL[LOG_LEVEL["ERROR"] = 0] = "ERROR";
+    LOG_LEVEL[LOG_LEVEL["WARNING"] = 1] = "WARNING";
+    LOG_LEVEL[LOG_LEVEL["INFO"] = 2] = "INFO";
+})(LOG_LEVEL || (LOG_LEVEL = {}));
+;
+export function errorToString(e) {
+    // LOG_RECORD
+    if (Array.isArray(e) && typeof e[2] === 'string') {
+        return e[2];
+    }
+    if (e instanceof Error) {
+        if (e.stack) {
+            return `${e.message}\n${e.stack}`;
+        }
+        return e.message;
+    }
+    return `${e}`;
+}
+export function errorToLogRecord(e, level) {
+    return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
+}
+export function log(logs, message, level) {
+    if (!Array.isArray(message)) {
+        message = errorToLogRecord(message, level !== null && level !== void 0 ? level : LOG_LEVEL.INFO);
+    }
+    if (CONFIG.LOG_TO_STDERR) {
+        switch (message[1]) {
+            case LOG_LEVEL.ERROR:
+                console.error(LOG_LEVEL[message[1]], message[2]);
+                break;
+            case LOG_LEVEL.WARNING:
+                console.warn(LOG_LEVEL[message[1]], message[2]);
+                break;
+            default:
+                console.info(LOG_LEVEL[message[1]], message[2]);
+        }
+    }
+    logs.push(message);
+}
 class Setting {
     constructor(value, help, validators) {
         this.value = value;
         this.help = help;
         this.validators = validators !== null && validators !== void 0 ? validators : [];
+    }
+    toString() {
+        return JSON.stringify(this.value);
     }
     set(value) {
         if (typeof value !== typeof this.value) {
@@ -28,7 +73,7 @@ class Setting {
     }
 }
 export class Context {
-    constructor(spreadsheet) {
+    constructor(spreadsheet, logs) {
         this.appname = new Setting(DEFAULT_APP_NAME, 'The Discord Bot name.');
         this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
         this.webhook = new Setting('', 'Discord channel webhook.', [
@@ -47,19 +92,51 @@ export class Context {
         this.feedHeaders = [];
         this.logs = [];
         this.debug = false;
+        this.defaults = [];
+        this.fetcher = new fetch.Fetcher();
         this.now = new Date().getTime();
         this.feedPatternRe = new RegExp('^https://');
         this.spreadsheet = spreadsheet;
+        if (logs !== undefined) {
+            this.logs = logs;
+        }
+        this.defaults = this.getDefaults();
     }
-    static getDefaults() {
+    getDefaults() {
+        if (this.defaults.length) {
+            return this.defaults;
+        }
         const defaults = [];
-        const context = new Context(null);
-        for (const [key, val] of Object.entries(context)) {
+        for (const [key, val] of Object.entries(this)) {
             if (val instanceof Setting) {
-                defaults.push([key, val.value]);
+                defaults.push([key, val.value, val.help]);
             }
         }
         return defaults;
+    }
+    setSettings(settings) {
+        const errors = [];
+        for (const [key, val] of settings) {
+            if (typeof key !== 'string' || !this.hasOwnProperty(key)) {
+                continue;
+            }
+            const setting = this[key];
+            if (!(setting instanceof Setting)) {
+                continue;
+            }
+            const error = setting.set(val);
+            if (error !== undefined) {
+                errors.push(`${key}: ${error}`);
+                continue;
+            }
+            if (key === 'feed_pattern') {
+                this.feedPatternRe = new RegExp(val);
+            }
+        }
+        if (!errors.length) {
+            errors.push(...this.validate());
+        }
+        return errors;
     }
     validate() {
         const errors = [];
@@ -74,7 +151,7 @@ export class Context {
         return errors;
     }
     fetch(url, params) {
-        UrlFetchApp.fetch(url, params);
+        return this.fetcher.fetch(url, params);
     }
     log(level, message) {
         this.logs.push([new Date().getTime(), level, message]);
@@ -88,37 +165,4 @@ export class Context {
     info(message) {
         log(this.logs, message, LOG_LEVEL.INFO);
     }
-}
-// export type SettingsRecord = Record<SETTINGS_FIELDS, string|number|boolean>;
-/**
- * Returns a settings object.
- */
-export function getContext(sheet, logs) {
-    const context = new Context(sheet);
-    context.logs = logs;
-    const [, data] = readSettingsTab(sheet);
-    const errors = [];
-    for (const [key, val] of data) {
-        if (typeof key !== 'string' || !context.hasOwnProperty(key)) {
-            continue;
-        }
-        const setting = context[key];
-        if (!(setting instanceof Setting)) {
-            continue;
-        }
-        const error = setting.set(val);
-        if (error != undefined) {
-            errors.push(`${key}: ${error}`);
-        }
-    }
-    if (!errors.length) {
-        errors.push(...context.validate());
-    }
-    if (errors.length) {
-        const msg = `Errors occurred during startup: ${errors.join('; ')}`;
-        log(logs, msg, LOG_LEVEL.ERROR);
-        throw new Error('Unable to construct Context');
-    }
-    context.feedPatternRe = new RegExp(context.feed_pattern.value);
-    return context;
 }

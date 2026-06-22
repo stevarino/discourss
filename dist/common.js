@@ -1,7 +1,9 @@
 /**
  * common.js - common interfaces, types, and constants.
  */
-export const DEFAULT_APP_NAME = 'DiscouRSS';
+export const CONFIG = {
+    LOG_TO_STDERR: false,
+};
 export var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";
@@ -11,35 +13,6 @@ export var STATUS;
     STATUS[STATUS["NONE"] = 4] = "NONE";
 })(STATUS || (STATUS = {}));
 ;
-export var LOG_LEVEL;
-(function (LOG_LEVEL) {
-    LOG_LEVEL[LOG_LEVEL["ERROR"] = 0] = "ERROR";
-    LOG_LEVEL[LOG_LEVEL["WARNING"] = 1] = "WARNING";
-    LOG_LEVEL[LOG_LEVEL["INFO"] = 2] = "INFO";
-})(LOG_LEVEL || (LOG_LEVEL = {}));
-;
-export function errorToString(e) {
-    // LOG_RECORD
-    if (Array.isArray(e) && typeof e[2] === 'string') {
-        return e[2];
-    }
-    if (e instanceof Error) {
-        if (e.stack) {
-            return `${e.message}\n${e.stack}`;
-        }
-        return e.message;
-    }
-    return `${e}`;
-}
-export function errorToLogRecord(e, level) {
-    return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
-}
-export function log(logs, message, level) {
-    if (!Array.isArray(message)) {
-        message = errorToLogRecord(message, level !== null && level !== void 0 ? level : LOG_LEVEL.INFO);
-    }
-    logs.push(message);
-}
 export const SHEET_HEADERS = {
     index: {
         label: 'Index',

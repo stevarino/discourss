@@ -1,10 +1,8 @@
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
-import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, LOG_LEVEL, errorToString } from './common.js';
-export const defaults = {
-    settings: [],
-};
+import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP } from './common.js';
+import { LOG_LEVEL, errorToString, Context } from './context.js';
 const SETTINGS_TAB = 'settings';
 const FEEDS_TAB = 'feeds';
 const LOGS_TAB = 'logs';
@@ -68,9 +66,9 @@ export function updateSettingsTab(sheet, defaults) {
     const [tab, values] = readSettingsTab(sheet);
     const exists = new Set(values.map(row => row[0]).filter(v => v));
     const toAdd = [];
-    for (const [key, val] of defaults) {
+    for (const [key, val, help] of defaults) {
         if (!exists.has(key)) {
-            toAdd.push([key, val]);
+            toAdd.push([key, val, help]);
         }
     }
     if (toAdd.length) {
@@ -94,7 +92,7 @@ export function writeLogs(sheet, logs) {
         let rowCount = 0;
         if (tab === null) {
             tab = sheet.insertSheet(LOGS_TAB);
-            tab.getRange(0, 0, rows.length, rows[0].length).setValues(rows);
+            tab.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
             tab.autoResizeColumns(1, colCount);
             // expand the last columnn
             tab.setColumnWidth(colCount, tab.getColumnWidth(colCount) * 8);
@@ -112,10 +110,10 @@ export function writeLogs(sheet, logs) {
                 }
             }
         }
-        const range = tab.getRange(0, 0, rows.length, rows[0].length);
+        const range = tab.getRange(1, 1, rows.length, rows[0].length);
         range.setValues(rows);
         tab.autoResizeRows(1, Math.max(rows.length, rowCount));
-        tab.getRange(0, colCount, rows.length, 1).setWrap(true);
+        tab.getRange(1, colCount, rows.length, 1).setWrap(true);
     }
     catch (e) {
         console.error(errorToString(e));
@@ -133,7 +131,8 @@ export function readFeedsTab(ctx) {
     const values = tab.getDataRange().getValues();
     for (let i = 0; i < values.length; i++) {
         // setup columns for dict-like lookup.
-        if (ctx.feedHeaders.length === 0) {
+        if (values[i].includes(SHEET_HEADERS.feed.label)) {
+            ctx.feedHeaders.length = 0;
             ctx.feedHeaders.push(...values[i]);
             const missing = [];
             for (const v of EXPECTED_HEADERS) {
@@ -146,6 +145,7 @@ export function readFeedsTab(ctx) {
             }
             continue;
         }
+        // console.log(values[i].map(String).join('\t'));
         const feed = { index: i };
         // iterate across the columns, using the header to map the value to the Feed object
         for (const [j, header] of ctx.feedHeaders.entries()) {
@@ -170,27 +170,13 @@ export function readFeedsTab(ctx) {
 }
 export function updateFeedsTab(tab, row, column, value, feedHeaders) {
     const col = getFeedColumn(feedHeaders, column.label);
-    tab.getRange(row, col, 1, 1).setValues([[value]]);
+    tab.getRange(row + 1, col + 1, 1, 1).setValues([[value]]);
     return;
-    // for (const [header, value] of [
-    //   [SHEET_HEADERS.time.label, settings.now],
-    //   [SHEET_HEADERS.guid.label, guid],
-    //   [SHEET_HEADERS.status.label, status],
-    // ] as [string, number|string][]) {
-    //   const offset = feedHeaders.indexOf(header);
-    //   if (offset === -1) {
-    //     // this should never fire.
-    //     throw new Error(`Unable to find column "${header}"`);
-    //   }
-    //   sheet
-    //     .getRange(index, offset + 1, 1, 1)
-    //     .setValues([[value]])
-    // }
 }
 export function setup() {
-    const sheet = SpreadsheetApp.getActive();
-    setupFeedsTab(sheet);
-    setupSettingsTab(sheet);
+    const ctx = new Context(SpreadsheetApp.getActive());
+    setupFeedsTab(ctx.spreadsheet);
+    setupSettingsTab(ctx.spreadsheet, ctx.defaults);
     setupTriggers();
 }
 function setupTriggers() {
@@ -200,6 +186,6 @@ function setupTriggers() {
             .timeBased().everyMinutes(5).create();
     }
 }
-function setupSettingsTab(sheet) {
-    updateSettingsTab(sheet, defaults.settings);
+function setupSettingsTab(sheet, defaults) {
+    updateSettingsTab(sheet, defaults);
 }

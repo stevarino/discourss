@@ -3,12 +3,12 @@
  */
 
 import {Result, STATUS, Message, Embed, SafeFeed } from './common.js';
-import * as settings from './settings.js';
+import {Context} from './context.js';
 
 /**
  * Process Feed
  */
-export function processFeed(feed: SafeFeed, ctx: settings.Context): Result {
+export function processFeed(feed: SafeFeed, ctx: Context): Result {
   // skip feed that has recently been scanned
   const diff = ctx.now - feed.time;
   if (diff < ctx.feed_frequency.value * 1000) {
@@ -17,7 +17,7 @@ export function processFeed(feed: SafeFeed, ctx: settings.Context): Result {
   }
 
   ctx.info(`${feed.feed} - fetching`);
-  const res = UrlFetchApp.fetch(feed.feed, {muteHttpExceptions: true});
+  const res = ctx.fetch(feed.feed, {muteHttpExceptions: true});
   if (res.getResponseCode() != 200) {
     return {
       status: STATUS.ERROR, 
@@ -28,7 +28,7 @@ export function processFeed(feed: SafeFeed, ctx: settings.Context): Result {
 }
 
 
-function parseRssXml(content: string, feed: SafeFeed, ctx: settings.Context): Result {
+function parseRssXml(content: string, feed: SafeFeed, ctx: Context): Result {
   const msg: Message = {
     username: feed.discord,
     embeds: [],

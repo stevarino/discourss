@@ -13,7 +13,7 @@ export function processFeed(feed, ctx) {
         return { status: STATUS.SKIP, status_text: '' };
     }
     ctx.info(`${feed.feed} - fetching`);
-    const res = UrlFetchApp.fetch(feed.feed, { muteHttpExceptions: true });
+    const res = ctx.fetch(feed.feed, { muteHttpExceptions: true });
     if (res.getResponseCode() != 200) {
         return {
             status: STATUS.ERROR,
