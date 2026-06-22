@@ -6,6 +6,7 @@
 import * as fs from 'node:fs/promises';
 import { rollup } from 'rollup';
 import path from 'path';
+import { execSync } from 'node:child_process';
 import { version } from './version.js';
 const entryFile = 'dist/index.js';
 const directory = 'dist/clasp';
@@ -45,6 +46,17 @@ const TOP_LEVEL_COMMENT = `/**
  */
 
 `;
+async function getHeadVersion() {
+    var _a;
+    const buf = execSync('npx clasp versions').toString();
+    const pattern = /^\d+/mg;
+    const what = buf.matchAll(/^\d+/mg);
+    console.log((_a = Array.from(what).pop()) === null || _a === void 0 ? void 0 : _a[0]);
+    const arr = pattern.exec(buf);
+    console.log(arr);
+    const tail = buf.trim().split('\n').pop();
+    console.log(tail);
+}
 async function writeVersion() {
     const content = `export const version = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';`;
     await fs.writeFile('src/version.ts', content);
@@ -84,6 +96,9 @@ async function build() {
 async function run() {
     if (process.argv.includes('--version')) {
         printVersion();
+    }
+    else if (process.argv.includes('--head')) {
+        getHeadVersion();
     }
     else {
         build();

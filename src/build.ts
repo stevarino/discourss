@@ -7,6 +7,7 @@
 import * as fs from 'node:fs/promises';
 import { rollup, OutputChunk } from 'rollup';
 import path from 'path';
+import { execSync } from 'node:child_process';
 
 import {version} from './version.js';
 
@@ -51,6 +52,12 @@ const TOP_LEVEL_COMMENT = `/**
  */
 
 `;
+
+async function getHeadVersion() {
+  const buf = execSync('npx clasp versions').toString();
+  const matches = buf.matchAll(/^\d+/mg)
+  console.log(Array.from(matches).pop()?.[0]);
+}
 
 async function writeVersion() {
   const content = `export const version = '${
@@ -100,6 +107,8 @@ async function build() {
 async function run() {
   if (process.argv.includes('--version')) {
     printVersion();
+  } else if (process.argv.includes('--head')) {
+    getHeadVersion();
   } else {
     build();
   }
