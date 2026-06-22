@@ -3,10 +3,10 @@
  */
 import { SHEET_HEADERS, STATUS } from './common.js';
 import { LOG_LEVEL, errorToString, log, Context } from './context.js';
-import { readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs } from './sheets.js';
+import { readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs, } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
-export { setup } from './sheets.js';
+export { setup, disableTriggers, setupTriggers } from './sheets.js';
 export function run(ctx) {
     var _a, _b;
     const spreadsheet = SpreadsheetApp.getActive();
@@ -129,8 +129,10 @@ function sendDiscordMessage(embeds, feed, ctx) {
 export function onOpen() {
     var ui = SpreadsheetApp.getUi();
     // Or DocumentApp, SlidesApp or FormApp.
-    ui.createMenu('RSS Updater')
+    ui.createMenu('DiscouRSS')
         .addItem('Run', 'run')
+        .addItem('Disable', 'disableTriggers')
+        .addItem('Enable', 'setupTriggers')
         .addItem('Setup', 'setup')
         .addToUi();
 }

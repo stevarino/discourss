@@ -3,7 +3,7 @@
  */
 import * as CheerioLib from 'cheerio';
 import { Context } from './context.js';
-export { setup } from './sheets.js';
+export { setup, disableTriggers, setupTriggers } from './sheets.js';
 declare global {
     const Cheerio: typeof CheerioLib;
 }

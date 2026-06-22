@@ -182,11 +182,18 @@ export function setup() {
     setupSettingsTab(ctx.spreadsheet, ctx.defaults);
     setupTriggers();
 }
-function setupTriggers() {
+export function setupTriggers() {
     const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
     if (!triggers.includes('timerTrigger')) {
         ScriptApp.newTrigger('timerTrigger')
             .timeBased().everyMinutes(5).create();
+    }
+}
+export function disableTriggers() {
+    for (const trigger of ScriptApp.getProjectTriggers()) {
+        if (trigger.getHandlerFunction() === 'timerTrigger') {
+            ScriptApp.deleteTrigger(trigger);
+        }
     }
 }
 function setupSettingsTab(sheet, defaults) {

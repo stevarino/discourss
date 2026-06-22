@@ -418,6 +418,13 @@ function setupTriggers() {
             .timeBased().everyMinutes(5).create();
     }
 }
+function disableTriggers() {
+    for (const trigger of ScriptApp.getProjectTriggers()) {
+        if (trigger.getHandlerFunction() === 'timerTrigger') {
+            ScriptApp.deleteTrigger(trigger);
+        }
+    }
+}
 function setupSettingsTab(sheet, defaults) {
     updateSettingsTab(sheet, defaults);
 }
@@ -516,7 +523,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-106-539-095';
+const version = '1-782-107-725-339';
 
 /**
  * index.js - main entry point for code
@@ -643,8 +650,10 @@ function sendDiscordMessage(embeds, feed, ctx) {
 function onOpen() {
     var ui = SpreadsheetApp.getUi();
     // Or DocumentApp, SlidesApp or FormApp.
-    ui.createMenu('RSS Updater')
+    ui.createMenu('DiscouRSS')
         .addItem('Run', 'run')
+        .addItem('Disable', 'disableTriggers')
+        .addItem('Enable', 'setupTriggers')
         .addItem('Setup', 'setup')
         .addToUi();
 }

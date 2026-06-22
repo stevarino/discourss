@@ -11,13 +11,13 @@ import {
   LOG_LEVEL, LOG_RECORD, errorToString, log, Context
 } from './context.js';
 import { 
-  readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs
+  readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs,
 } from './sheets.js';
 import { FetchRequest } from './fetch.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
 
-export {setup} from './sheets.js';
+export {setup, disableTriggers, setupTriggers} from './sheets.js';
 
 declare global {
   const Cheerio: typeof CheerioLib;
@@ -148,8 +148,10 @@ function sendDiscordMessage(embeds: Embed[], feed: SafeFeed, ctx: Context) {
 export function onOpen(): void {
   var ui = SpreadsheetApp.getUi();
   // Or DocumentApp, SlidesApp or FormApp.
-  ui.createMenu('RSS Updater')
+  ui.createMenu('DiscouRSS')
       .addItem('Run', 'run')
+      .addItem('Disable', 'disableTriggers')
+      .addItem('Enable', 'setupTriggers')
       .addItem('Setup', 'setup')
       .addToUi();
 }

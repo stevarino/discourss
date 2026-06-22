@@ -14,3 +14,5 @@ export declare function getFeedColumn(feedHeaders: CELL_VALUE[], header: string)
 export declare function readFeedsTab(ctx: BaseContext): [Worksheet, SafeFeed[]];
 export declare function updateFeedsTab(tab: Worksheet, row: number, column: SHEET_HEADER_TYPES, value: CELL_VALUE, feedHeaders: CELL_VALUE[]): void;
 export declare function setup(): void;
+export declare function setupTriggers(): void;
+export declare function disableTriggers(): void;

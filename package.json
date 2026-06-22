@@ -11,7 +11,10 @@
     "login": "clasp login",
     "push": "clasp push",
     "open-web": "clasp open-web-app AKfycbwDK_O1ump1W5IqTJCaxS40237v2zfGns4Hcms6nu-E",
-    "push-version": "clasp create-version \"$(npm run build --silent -- --version)\"",
+    "version": "clasp create-version \"$(npm run build --silent -- --version)\"",
+    "patch": "npm run push && npm version patch && npm run version",
+    "minor": "npm run push && npm version minor && npm run version",
+    "major": "npm run push && npm version major && npm run version",
     "build": "tsc && npx eslint . && nodejs dist/build.js ",
     "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js"
   },

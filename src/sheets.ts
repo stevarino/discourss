@@ -202,11 +202,19 @@ export function setup(): void {
   setupTriggers();
 }
 
-function setupTriggers() {
+export function setupTriggers(): void {
   const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
   if (!triggers.includes('timerTrigger')) {
     ScriptApp.newTrigger('timerTrigger')
       .timeBased().everyMinutes(5).create();
+  }
+}
+
+export function disableTriggers(): void {
+  for  (const trigger of ScriptApp.getProjectTriggers()) {
+    if (trigger.getHandlerFunction() === 'timerTrigger') {
+      ScriptApp.deleteTrigger(trigger);
+    }
   }
 }
 
