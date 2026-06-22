@@ -49,13 +49,8 @@ const TOP_LEVEL_COMMENT = `/**
 async function getHeadVersion() {
     var _a;
     const buf = execSync('npx clasp versions').toString();
-    const pattern = /^\d+/mg;
-    const what = buf.matchAll(/^\d+/mg);
-    console.log((_a = Array.from(what).pop()) === null || _a === void 0 ? void 0 : _a[0]);
-    const arr = pattern.exec(buf);
-    console.log(arr);
-    const tail = buf.trim().split('\n').pop();
-    console.log(tail);
+    const matches = buf.matchAll(/^\d+/mg);
+    console.log((_a = Array.from(matches).pop()) === null || _a === void 0 ? void 0 : _a[0]);
 }
 async function writeVersion() {
     const content = `export const version = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';`;
@@ -100,8 +95,12 @@ async function run() {
     else if (process.argv.includes('--head')) {
         getHeadVersion();
     }
-    else {
+    else if (process.argv.includes('--build')) {
         build();
+    }
+    else {
+        console.error('Unrecognized command');
+        process.exit(1);
     }
 }
 run().catch(console.error);

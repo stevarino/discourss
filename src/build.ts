@@ -109,8 +109,11 @@ async function run() {
     printVersion();
   } else if (process.argv.includes('--head')) {
     getHeadVersion();
-  } else {
+  } else if (process.argv.includes('--build')) {
     build();
+  } else {
+    console.error('Unrecognized command');
+    process.exit(1)
   }
 }
 
