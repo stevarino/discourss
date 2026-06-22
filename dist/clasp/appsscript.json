@@ -22,6 +22,6 @@
   },
   "webapp": {
     "access": "ANYONE",
-    "executeAs": "USER_DEPLOYING"
+    "executeAs": "USER_ACCESSING"
   }
 }
