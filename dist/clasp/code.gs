@@ -523,7 +523,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-107-725-339';
+const version = '1-782-108-151-711';
 
 /**
  * index.js - main entry point for code
