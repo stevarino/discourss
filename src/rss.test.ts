@@ -57,7 +57,7 @@ describe('rss.ts unit tests', () => {
     assert.strictEqual(result.status, STATUS.SKIP);
   });
 
-  test('returns error status if server responds with non-200 status code', () => {
+  test('returns error status if server responds with non-204 status code', () => {
     const ctx = createTestContext();
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
@@ -83,7 +83,7 @@ describe('rss.ts unit tests', () => {
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
-    mockFetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+    mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
     const feed: SafeFeed = {
       index: 1,
@@ -128,7 +128,7 @@ describe('rss.ts unit tests', () => {
     {
       const ctx = createTestContext(feed.time + 7200 * 1000);
       ctx.image_format.value = 'image';
-      (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 200);
+      (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
       const embeds = result.message?.embeds || [];
@@ -140,7 +140,7 @@ describe('rss.ts unit tests', () => {
     {
       const ctx = createTestContext(feed.time + 7200 * 1000);
       ctx.image_format.value = 'thumbnail';
-      (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 200);
+      (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
       const embeds = result.message?.embeds || [];
@@ -152,7 +152,7 @@ describe('rss.ts unit tests', () => {
     {
       const ctx = createTestContext(feed.time + 7200 * 1000);
       ctx.image_format.value = 'none';
-      (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 200);
+      (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
       const embeds = result.message?.embeds || [];
@@ -166,7 +166,7 @@ describe('rss.ts unit tests', () => {
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
-    mockFetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+    mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
     const feed: SafeFeed = {
       index: 1,
@@ -192,7 +192,7 @@ describe('rss.ts unit tests', () => {
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
-    mockFetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+    mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
     const feed: SafeFeed = {
       index: 1,

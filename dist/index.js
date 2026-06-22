@@ -17,6 +17,7 @@ export function run(ctx) {
                 throw new Error('Unable to load Settings.');
             }
         }
+        ctx.info('--- START ---');
         const [tab, feeds] = readFeedsTab(ctx);
         ctx.info(`Read ${feeds.length} rows`);
         let count = 0;
@@ -119,7 +120,7 @@ function sendDiscordMessage(embeds, feed, ctx) {
     }
     for (let i = 0; i < requests.length; i++) {
         const response = ctx.fetch(ctx.webhook.value, requests[i]);
-        if (response.getResponseCode() != 200) {
+        if (response.getResponseCode() != 204) {
             throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
         }
     }

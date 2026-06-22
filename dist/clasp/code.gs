@@ -301,7 +301,7 @@ function updateSettingsTab(sheet, defaults) {
         }
     }
     if (toAdd.length) {
-        const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, 2);
+        const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, toAdd[0].length);
         range.setValues(toAdd);
     }
 }
@@ -434,7 +434,7 @@ function processFeed(feed, ctx) {
     }
     ctx.info(`${feed.feed} - fetching`);
     const res = ctx.fetch(feed.feed, { muteHttpExceptions: true });
-    if (res.getResponseCode() != 200) {
+    if (!String(res.getResponseCode()).startsWith('2')) {
         return {
             status: STATUS.ERROR,
             status_text: `HTTP Response code: ${res.getResponseCode()}`
@@ -527,6 +527,7 @@ function run(ctx) {
                 throw new Error('Unable to load Settings.');
             }
         }
+        ctx.info('--- START ---');
         const [tab, feeds] = readFeedsTab(ctx);
         ctx.info(`Read ${feeds.length} rows`);
         let count = 0;
@@ -629,7 +630,7 @@ function sendDiscordMessage(embeds, feed, ctx) {
     }
     for (let i = 0; i < requests.length; i++) {
         const response = ctx.fetch(ctx.webhook.value, requests[i]);
-        if (response.getResponseCode() != 200) {
+        if (response.getResponseCode() != 204) {
             throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
         }
     }

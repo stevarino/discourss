@@ -72,8 +72,8 @@ describe('sheets.ts unit tests', () => {
 
     const values = tab.getDataRange().getValues();
     assert.deepStrictEqual(values, [
-      ['existing_key', 'some_value'],
-      ['new_key', 'new_val']
+      ['existing_key', 'some_value', ''],
+      ['new_key', 'new_val', 'help new']
     ]);
   });
 

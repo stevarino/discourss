@@ -14,7 +14,7 @@ export function createTestContext(sheet) {
     };
 }
 export class MockResponse {
-    constructor(contentText, responseCode = 200) {
+    constructor(contentText, responseCode = 204) {
         this.contentText = contentText;
         this.responseCode = responseCode;
     }
@@ -57,7 +57,7 @@ export class MockFetcher extends Fetcher {
         this.requests[url].push({ req, res });
         return res;
     }
-    addMock(urlPattern, contentText, responseCode = 200) {
+    addMock(urlPattern, contentText, responseCode = 204) {
         this.rules.push({
             urlPattern,
             response: new MockResponse(contentText, responseCode)

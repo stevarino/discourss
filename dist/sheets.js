@@ -72,7 +72,7 @@ export function updateSettingsTab(sheet, defaults) {
         }
     }
     if (toAdd.length) {
-        const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, 2);
+        const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, toAdd[0].length);
         range.setValues(toAdd);
     }
 }

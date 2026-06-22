@@ -84,7 +84,8 @@ export function updateSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VA
     }
   }
   if (toAdd.length) {
-    const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, 2);
+    const range = tab.getRange(
+      tab.getLastRow() + 1, 1, toAdd.length, toAdd[0].length);
     range.setValues(toAdd);
   }
 }
@@ -176,7 +177,10 @@ export function readFeedsTab(ctx: BaseContext): [Worksheet, SafeFeed[]] {//, spr
     }
     // skip feed that is not obvious feed url
     if (!ctx.feedPatternRe.test(feed.feed)) {
-      ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+      // entries with spaces are likely descriptions
+      if (!feed.feed.includes(' ')) {
+        ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+      }
       continue;
     }
     feeds.push(feed as SafeFeed);

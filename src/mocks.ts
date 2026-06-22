@@ -23,7 +23,7 @@ export class MockResponse implements FetchResponse {
   private responseCode: number;
   private contentText: string;
 
-  constructor(contentText: string, responseCode = 200) {
+  constructor(contentText: string, responseCode = 204) {
     this.contentText = contentText;
     this.responseCode = responseCode;
   }
@@ -67,7 +67,7 @@ export class MockFetcher extends Fetcher {
     return res;
   }
 
-  addMock(urlPattern: string | RegExp, contentText: string, responseCode = 200): void {
+  addMock(urlPattern: string | RegExp, contentText: string, responseCode = 204): void {
     this.rules.push({
       urlPattern,
       response: new MockResponse(contentText, responseCode)

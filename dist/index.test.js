@@ -40,8 +40,8 @@ describe('index.ts run() integration tests', () => {
         feedsTab.getRange(1, 1, 1, 6).setValues([headers]);
         feedsTab.getRange(2, 1, 1, 6).setValues([[1, FEED_1, '123456', 0, '0', 'ok']]);
         // Setup mocks
-        mockFetcher.addMock(FEED_1, SAMPLE_RSS_FEED, 200);
-        mockFetcher.addMock(DISCORD_WEBHOOK, 'OK', 200);
+        mockFetcher.addMock(FEED_1, SAMPLE_RSS_FEED, 204);
+        mockFetcher.addMock(DISCORD_WEBHOOK, 'OK', 204);
         // Run execution
         run(CTX);
         // 1. Verify Discord message sent correctly
@@ -64,9 +64,9 @@ describe('index.ts run() integration tests', () => {
         feedsTab.getRange(1, 1, 1, 6).setValues([headers]);
         feedsTab.getRange(2, 1, 1, 6).setValues([[1, FEED_1, '123456', 0, '0', 'ok']]);
         feedsTab.getRange(3, 1, 1, 6).setValues([[2, FEED_2, '123456', 0, '0', 'ok']]);
-        mockFetcher.addMock(FEED_1, SAMPLE_RSS_FEED, 200);
-        mockFetcher.addMock(FEED_2, SAMPLE_RSS_FEED, 200);
-        mockFetcher.addMock(DISCORD_WEBHOOK, 'OK', 200);
+        mockFetcher.addMock(FEED_1, SAMPLE_RSS_FEED, 204);
+        mockFetcher.addMock(FEED_2, SAMPLE_RSS_FEED, 204);
+        mockFetcher.addMock(DISCORD_WEBHOOK, 'OK', 204);
         run(CTX);
         const feedValues = feedsTab.getDataRange().getValues();
         // Feed 1 should be updated (processed)
@@ -82,8 +82,8 @@ describe('index.ts run() integration tests', () => {
         feedsTab.getRange(2, 1, 1, 6).setValues([[1, 'https://example.com/error-feed', '123456', 0, '0', 'ok']]);
         feedsTab.getRange(3, 1, 1, 6).setValues([[2, 'https://example.com/success-feed', '123456', 0, '0', 'ok']]);
         mockFetcher.addMock('https://example.com/error-feed', 'Internal Server Error', 500);
-        mockFetcher.addMock('https://example.com/success-feed', SAMPLE_RSS_FEED, 200);
-        mockFetcher.addMock(DISCORD_WEBHOOK, 'OK', 200);
+        mockFetcher.addMock('https://example.com/success-feed', SAMPLE_RSS_FEED, 204);
+        mockFetcher.addMock(DISCORD_WEBHOOK, 'OK', 204);
         run(CTX);
         const feedValues = feedsTab.getDataRange().getValues();
         // Feed 1 should record error status

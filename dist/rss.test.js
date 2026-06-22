@@ -49,7 +49,7 @@ describe('rss.ts unit tests', () => {
         const result = processFeed(feed, ctx);
         assert.strictEqual(result.status, STATUS.SKIP);
     });
-    test('returns error status if server responds with non-200 status code', () => {
+    test('returns error status if server responds with non-204 status code', () => {
         const ctx = createTestContext();
         const mockFetcher = ctx.fetcher;
         const url = 'https://example.com/rss';
@@ -71,7 +71,7 @@ describe('rss.ts unit tests', () => {
         const ctx = createTestContext();
         const mockFetcher = ctx.fetcher;
         const url = 'https://example.com/rss';
-        mockFetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+        mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
         const feed = {
             index: 1,
             feed: url,
@@ -110,7 +110,7 @@ describe('rss.ts unit tests', () => {
         {
             const ctx = createTestContext(feed.time + 7200 * 1000);
             ctx.image_format.value = 'image';
-            ctx.fetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+            ctx.fetcher.addMock(url, SAMPLE_RSS_FEED, 204);
             const result = processFeed(feed, ctx);
             const embeds = ((_a = result.message) === null || _a === void 0 ? void 0 : _a.embeds) || [];
             assert.strictEqual((_b = embeds[0].image) === null || _b === void 0 ? void 0 : _b.url, 'https://example.com/image1.png');
@@ -120,7 +120,7 @@ describe('rss.ts unit tests', () => {
         {
             const ctx = createTestContext(feed.time + 7200 * 1000);
             ctx.image_format.value = 'thumbnail';
-            ctx.fetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+            ctx.fetcher.addMock(url, SAMPLE_RSS_FEED, 204);
             const result = processFeed(feed, ctx);
             const embeds = ((_c = result.message) === null || _c === void 0 ? void 0 : _c.embeds) || [];
             assert.strictEqual(embeds[0].image, undefined);
@@ -130,7 +130,7 @@ describe('rss.ts unit tests', () => {
         {
             const ctx = createTestContext(feed.time + 7200 * 1000);
             ctx.image_format.value = 'none';
-            ctx.fetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+            ctx.fetcher.addMock(url, SAMPLE_RSS_FEED, 204);
             const result = processFeed(feed, ctx);
             const embeds = ((_e = result.message) === null || _e === void 0 ? void 0 : _e.embeds) || [];
             assert.strictEqual(embeds[0].image, undefined);
@@ -142,7 +142,7 @@ describe('rss.ts unit tests', () => {
         const ctx = createTestContext();
         const mockFetcher = ctx.fetcher;
         const url = 'https://example.com/rss';
-        mockFetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+        mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
         const feed = {
             index: 1,
             feed: url,
@@ -164,7 +164,7 @@ describe('rss.ts unit tests', () => {
         const ctx = createTestContext();
         const mockFetcher = ctx.fetcher;
         const url = 'https://example.com/rss';
-        mockFetcher.addMock(url, SAMPLE_RSS_FEED, 200);
+        mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
         const feed = {
             index: 1,
             feed: url,

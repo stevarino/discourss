@@ -14,7 +14,7 @@ export function processFeed(feed, ctx) {
     }
     ctx.info(`${feed.feed} - fetching`);
     const res = ctx.fetch(feed.feed, { muteHttpExceptions: true });
-    if (res.getResponseCode() != 200) {
+    if (!String(res.getResponseCode()).startsWith('2')) {
         return {
             status: STATUS.ERROR,
             status_text: `HTTP Response code: ${res.getResponseCode()}`
