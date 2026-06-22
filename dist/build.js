@@ -6,6 +6,7 @@
 import * as fs from 'node:fs/promises';
 import { rollup } from 'rollup';
 import path from 'path';
+import { version } from './version.js';
 const entryFile = 'dist/index.js';
 const directory = 'dist/clasp';
 const bundleFile = directory + '/code.gs';
@@ -44,7 +45,18 @@ const TOP_LEVEL_COMMENT = `/**
  */
 
 `;
+async function writeVersion() {
+    const content = `export const version = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';`;
+    await fs.writeFile('src/version.ts', content);
+    await fs.writeFile('dist/version.js', content);
+}
+async function printVersion() {
+    const content = await fs.readFile('package.json', 'utf-8');
+    const json = JSON.parse(content);
+    console.log(`${json.version} (${version})`);
+}
 async function build() {
+    await writeVersion();
     const bundle = await rollup({
         input: entryFile,
     });
@@ -69,4 +81,12 @@ async function build() {
     }
     console.log(`Rolled up ${entryFile} into ${bundleFile}`);
 }
-build().catch(console.error);
+async function run() {
+    if (process.argv.includes('--version')) {
+        printVersion();
+    }
+    else {
+        build();
+    }
+}
+run().catch(console.error);

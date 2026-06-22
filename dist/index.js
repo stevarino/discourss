@@ -5,6 +5,7 @@ import { SHEET_HEADERS, STATUS } from './common.js';
 import { LOG_LEVEL, errorToString, log, Context } from './context.js';
 import { readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs } from './sheets.js';
 import { processFeed } from './rss.js';
+import { version } from './version.js';
 export { setup } from './sheets.js';
 export function run(ctx) {
     var _a, _b;
@@ -17,7 +18,7 @@ export function run(ctx) {
                 throw new Error('Unable to load Settings.');
             }
         }
-        ctx.info('--- START ---');
+        ctx.info(`--- START (${version}) ---`);
         const [tab, feeds] = readFeedsTab(ctx);
         ctx.info(`Read ${feeds.length} rows`);
         let count = 0;

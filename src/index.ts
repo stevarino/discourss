@@ -15,6 +15,7 @@ import {
 } from './sheets.js';
 import { FetchRequest } from './fetch.js';
 import { processFeed } from './rss.js';
+import { version } from './version.js';
 
 export {setup} from './sheets.js';
 
@@ -32,7 +33,7 @@ export function run(ctx?: Context): void {
         throw new Error('Unable to load Settings.');
       }
     }
-    ctx.info('--- START ---');
+    ctx.info(`--- START (${version}) ---`);
     const [tab, feeds] = readFeedsTab(ctx);
     ctx.info(`Read ${feeds.length} rows`);
 

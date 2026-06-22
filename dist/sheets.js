@@ -161,7 +161,10 @@ export function readFeedsTab(ctx) {
         }
         // skip feed that is not obvious feed url
         if (!ctx.feedPatternRe.test(feed.feed)) {
-            ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+            // entries with spaces are likely descriptions
+            if (!feed.feed.includes(' ')) {
+                ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+            }
             continue;
         }
         feeds.push(feed);

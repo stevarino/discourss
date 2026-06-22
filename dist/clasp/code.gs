@@ -390,7 +390,10 @@ function readFeedsTab(ctx) {
         }
         // skip feed that is not obvious feed url
         if (!ctx.feedPatternRe.test(feed.feed)) {
-            ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+            // entries with spaces are likely descriptions
+            if (!feed.feed.includes(' ')) {
+                ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+            }
             continue;
         }
         feeds.push(feed);
@@ -513,6 +516,8 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
+const version = '1-782-106-105-053';
+
 /**
  * index.js - main entry point for code
  */
@@ -527,7 +532,7 @@ function run(ctx) {
                 throw new Error('Unable to load Settings.');
             }
         }
-        ctx.info('--- START ---');
+        ctx.info(`--- START (${version}) ---`);
         const [tab, feeds] = readFeedsTab(ctx);
         ctx.info(`Read ${feeds.length} rows`);
         let count = 0;

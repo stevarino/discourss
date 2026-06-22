@@ -8,6 +8,8 @@ import * as fs from 'node:fs/promises';
 import { rollup, OutputChunk } from 'rollup';
 import path from 'path';
 
+import {version} from './version.js';
+
 const entryFile = 'dist/index.js';
 const directory = 'dist/clasp';
 const bundleFile = directory + '/code.gs';
@@ -50,34 +52,57 @@ const TOP_LEVEL_COMMENT = `/**
 
 `;
 
+async function writeVersion() {
+  const content = `export const version = '${
+    new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')
+  }';`;
+  await fs.writeFile('src/version.ts', content);
+  await fs.writeFile('dist/version.js', content);
+}
+
+async function printVersion() {
+  const content = await fs.readFile('package.json', 'utf-8');
+  const json = JSON.parse(content);
+  console.log(`${json.version} (${version})`);
+}
+
 async function build() {
-    const bundle = await rollup({
-        input: entryFile,
-    });
-    fs.mkdir(directory, {recursive: true});
+  await writeVersion();
+  const bundle = await rollup({
+      input: entryFile,
+  });
+  fs.mkdir(directory, {recursive: true});
 
-    const output: string[] = [TOP_LEVEL_COMMENT];
-    const chunks = await bundle.generate({format: 'esm'})
-    for (const chunk of chunks.output) {
-        let code = (chunk as OutputChunk).code;
-        if (code !== undefined) {
-          for (const regex of toRemove) {
-            while (regex.test(code)) {
-              code = code.replace(regex, '');
-            }
+  const output: string[] = [TOP_LEVEL_COMMENT];
+  const chunks = await bundle.generate({format: 'esm'})
+  for (const chunk of chunks.output) {
+      let code = (chunk as OutputChunk).code;
+      if (code !== undefined) {
+        for (const regex of toRemove) {
+          while (regex.test(code)) {
+            code = code.replace(regex, '');
           }
-          output.push(code);
         }
-    }
-    await fs.writeFile(bundleFile, output.join('\n'));
+        output.push(code);
+      }
+  }
+  await fs.writeFile(bundleFile, output.join('\n'));
 
 
-    for (const filename of toCopy) {
-      const fn = path.basename(filename);
-      await fs.copyFile(filename, path.join(directory, fn));
-    }
-
-    console.log(`Rolled up ${entryFile} into ${bundleFile}`);
+  for (const filename of toCopy) {
+    const fn = path.basename(filename);
+    await fs.copyFile(filename, path.join(directory, fn));
   }
 
-  build().catch(console.error);
+  console.log(`Rolled up ${entryFile} into ${bundleFile}`);
+}
+
+async function run() {
+  if (process.argv.includes('--version')) {
+    printVersion();
+  } else {
+    build();
+  }
+}
+
+run().catch(console.error);
