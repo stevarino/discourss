@@ -12,7 +12,9 @@ import { version } from './version.js';
 const entryFile = 'dist/index.js';
 const directory = 'dist/clasp';
 const bundleFile = directory + '/code.gs';
-const PROD_DEPLOYMENT = 'AKfycbxtvC7at1Ru1wBUFUexXzP2Pn5SSHCyil7U_Cwrr8Jk_WEqjNwP-cTQSOw4rHQt_y2IJQ';
+const URL = 'https://workspace.google.com/marketplace/app/discourss/107272671119';
+// const PROD_DEPLOYMENT = 'AKfycbxtvC7at1Ru1wBUFUexXzP2Pn5SSHCyil7U_Cwrr8Jk_WEqjNwP-cTQSOw4rHQt_y2IJQ';
+// const URL = `https://script.google.com/macros/s/${PROD_DEPLOYMENT}/exec`;
 const toCopy = [
     'data/appsscript.json'
 ];
@@ -55,7 +57,7 @@ async function getHeadVersion() {
     console.log((_a = Array.from(matches).pop()) === null || _a === void 0 ? void 0 : _a[0]);
 }
 async function writeVersion() {
-    const content = `export const version = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';\n`;
+    const content = `export const version: string = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';\n`;
     await fs.writeFile('src/version.ts', content);
     await fs.writeFile('dist/version.js', content);
 }
@@ -73,7 +75,7 @@ async function buildWeb() {
     }
     let template = await fs.readFile(path.join(base_dir, 'template.html'), { encoding: 'utf-8' });
     const replacements = [
-        [/__SCRIPT_URL__/g, `https://script.google.com/macros/s/${PROD_DEPLOYMENT}/exec`]
+        [/__SCRIPT_URL__/g, URL],
     ];
     for (const [regex, value] of replacements) {
         template = template.replace(regex, value);
