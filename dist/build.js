@@ -59,7 +59,7 @@ async function getHeadVersion() {
 async function writeVersion() {
     const content = `export const version: string = '${new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')}';\n`;
     await fs.writeFile('src/version.ts', content);
-    await fs.writeFile('dist/version.js', content);
+    await fs.writeFile('dist/version.js', content.replace(': string', ''));
 }
 async function printVersion() {
     const content = await fs.readFile('package.json', 'utf-8');

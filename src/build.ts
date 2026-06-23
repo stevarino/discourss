@@ -69,7 +69,7 @@ async function writeVersion() {
     new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')
   }';\n`;
   await fs.writeFile('src/version.ts', content);
-  await fs.writeFile('dist/version.js', content);
+  await fs.writeFile('dist/version.js', content.replace(': string', ''));
 }
 
 async function printVersion() {
