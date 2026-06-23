@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { setupFeedsTab, readSettingsTab, updateSettingsTab, writeLogs, readFeedsTab, updateFeedsTab, } from './sheets.js';
+import { setupFeedsTab, readSettingsTab, setupSettingsTab, writeLogs, readFeedsTab, updateFeedsTab, } from './sheets.js';
 import { SHEET_HEADERS, } from './common.js';
 import { LOG_LEVEL } from './context.js';
 import { MockSpreadsheet } from './mocks.js';
@@ -35,7 +35,7 @@ describe('sheets.ts unit tests', () => {
             readSettingsTab(sheet);
         }, /expected a sheet called "settings" - found none/);
     });
-    test('updateSettingsTab inserts missing default settings', () => {
+    test('setupSettingsTab inserts missing default settings', () => {
         const sheet = new MockSpreadsheet();
         const tab = sheet.insertSheet('settings');
         tab.getRange(1, 1, 1, 2).setValues([['existing_key', 'some_value']]);
@@ -43,7 +43,7 @@ describe('sheets.ts unit tests', () => {
             ['existing_key', 'default_val', 'help existing'],
             ['new_key', 'new_val', 'help new']
         ];
-        updateSettingsTab(sheet, defaults);
+        setupSettingsTab(sheet, defaults);
         const values = tab.getDataRange().getValues();
         assert.deepStrictEqual(values, [
             ['existing_key', 'some_value', ''],

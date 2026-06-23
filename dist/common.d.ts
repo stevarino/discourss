@@ -79,6 +79,7 @@ export interface Spreadsheet {
 }
 export interface Worksheet {
     getLastRow(): number;
+    getLastColumn(): number;
     getDataRange(): Range;
     getRange(row: number, column: number, rowCount: number, colCount: number): Range;
     autoResizeColumns(startColumn: number, numColumns: number): void;
@@ -86,9 +87,9 @@ export interface Worksheet {
     getColumnWidth(column: number): number;
     autoResizeRows(startRow: number, numRows: number): void;
 }
-interface Range {
+export interface Range {
     getValues(): CELL_VALUE[][];
-    setValues(values: CELL_VALUE[][]): void;
+    setValues(values: CELL_VALUE[][]): Range;
     setBackground(color: string): Range;
     setTextStyle(style: StyleBuilderFinal): Range;
     clear(): Range;

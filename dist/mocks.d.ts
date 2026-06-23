@@ -53,7 +53,7 @@ export declare class MockRange {
     private numCols;
     constructor(sheet: MockWorksheet, startRow: number, startCol: number, numRows: number, numCols: number);
     getValues(): CELL_VALUE[][];
-    setValues(values: CELL_VALUE[][]): void;
+    setValues(values: CELL_VALUE[][]): MockRange;
     setBackground(): MockRange;
     setTextStyle(): MockRange;
     setVerticalAlignment(): MockRange;
@@ -68,6 +68,7 @@ declare class MockWorksheet implements Worksheet {
     setCell(r: number, c: number, value: CELL_VALUE): void;
     deleteCell(r: number, c: number): void;
     getLastRow(): number;
+    getLastColumn(): number;
     getDataRange(): MockRange;
     getRange(row: number, column: number, rowCount: number, colCount: number): MockRange;
     autoResizeColumns(): void;

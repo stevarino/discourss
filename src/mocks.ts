@@ -171,13 +171,14 @@ export class MockRange {
     return values;
   }
 
-  setValues(values: CELL_VALUE[][]): void {
+  setValues(values: CELL_VALUE[][]): MockRange {
     for (let r = 0; r < values.length; r++) {
       const colsToWrite = Math.min(this.numCols, values[r].length);
       for (let c = 0; c < colsToWrite; c++) {
         this.sheet.setCell(this.startRow - 1 + r, this.startCol - 1 + c, values[r][c]);
       }
     }
+    return this;
   }
 
   setBackground(): MockRange { return this; }
@@ -223,6 +224,11 @@ class MockWorksheet implements Worksheet {
       }
     }
     return maxRow + 1;
+  }
+
+  getLastColumn(): number {
+    return Math.max(...Array.from(this.cells.keys()).map(
+      k => parseInt(k.split(',')[1], 10))) + 1;
   }
 
   getDataRange(): MockRange {

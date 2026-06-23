@@ -5,7 +5,8 @@
 import {
   SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP,
   Feed, FeedLookup, SafeFeed, Spreadsheet, StyleBuilder,
-  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES, BaseContext
+  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES, BaseContext,
+  Range
 } from './common.js';
 import {LOG_LEVEL, LOG_RECORD, errorToString, Context} from './context.js'
 
@@ -20,49 +21,51 @@ function newTextStyle(): StyleBuilder {
 export function setupFeedsTab(sheet: Spreadsheet): void {
   // Creates the Feeds tab and adds any missing columns.
   let tab = sheet.getSheetByName(FEEDS_TAB);
+  let values: CELL_VALUE[][] = [[]]
+  let lastCol = 0;
+  let range: Range;
   if (tab === null) {
     tab = sheet.insertSheet(FEEDS_TAB);
+    range = tab.getDataRange();
+    values = [[]]
+  } else {
+    lastCol = tab.getLastColumn();
+    range = tab.getDataRange();
+    values = range.getValues();
   }
-  const range = tab.getDataRange();
-  const rows = range.getValues();
-  while (rows.length < 2) {
-    rows.push([]);
+  // row A is identifier, row B is help text
+  while (values.length < 2) {
+    values.push([]);
   }
-  // ensure rectangle rows (should be...)
-  const cols = Math.max(rows[0].length, rows[1].length);
-  for (let i = 0; i < cols; i++) {
+  
+  // extend values array.
+  for (let i = 0; i < values[0].length; i++) {
     for (let j = 0; j < 2; j++) {
-      if (rows[j].length == i) {
-        rows[j][i] = '';
+      if (values[j].length == i) {
+        values[j][i] = '';
       }
     }
   }
   // add missing columns
   const newData: string[][] = [[], []];
   for (const header of EXPECTED_HEADERS) {
-    if (!rows[0].includes(header)) {
-      const index = rows[0].length;
+    if (!values[0].includes(header)) {
+      const index = values[0].length;
       const {label, help} = SHEET_HEADERS[HEADER_LOOKUP[header]];
-      rows[0][index] = label;
-      rows[1][index] = help;
+      values[0][index] = label;
+      values[1][index] = help;
       newData[0].push(label);
       newData[1].push(help);
     }
   }
   if (newData[0].length > 0) {
-    const rowA = tab.getRange(1, cols+1, 1, newData[0].length);
-    const rowB = tab.getRange(2, cols+1, 1, newData[0].length);
-    rowA.setValues([newData[0]]);
-    rowB.setValues([newData[1]]);
-    rowA.setBackground('#4285f4') // cornflower blue
-    rowA.setTextStyle(
+    const range = tab.getRange(1, lastCol + 1, 2, newData[0].length)
+    range.setValues(newData).setBackground('#4285f4').setTextStyle(
       newTextStyle().setFontSize(16).setBold(true)
       .setForegroundColor('#ffffff').build());
-    rowB.setBackground('#4285f4') // cornflower blue
-    rowB.setTextStyle(
-      newTextStyle().setFontSize(10).setBold(false)
-      .setForegroundColor('#ffffff').build());
-    tab.autoResizeColumns(cols+1, newData[0].length);
+    tab.getRange(2, lastCol+1, 1, newData[0].length).setTextStyle(
+      newTextStyle().setFontSize(10).setBold(false).build());
+    tab.autoResizeColumns(lastCol+1, newData[0].length);
   }
 }
 
@@ -74,8 +77,17 @@ export function readSettingsTab(sheet: Spreadsheet): [Worksheet, CELL_VALUE[][]]
   return [settingsTab, settingsTab.getDataRange().getValues()]
 }
 
-export function updateSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]): void {
-  const [tab, values] = readSettingsTab(sheet);
+export function setupSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]): void {
+  let tab = sheet.getSheetByName(SETTINGS_TAB);
+  let values: CELL_VALUE[][] = [[]]
+  let lastRow = 0;
+  if (tab === null) {
+    tab = sheet.insertSheet(SETTINGS_TAB);
+  } else {
+    values = tab.getDataRange().getValues();
+    lastRow = tab.getLastRow();
+  }
+
   const exists = new Set(values.map(row => row[0]).filter(v => v));
   const toAdd: [string, CELL_VALUE, string][] = [];
   for (const [key, val, help] of defaults) {
@@ -85,7 +97,7 @@ export function updateSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VA
   }
   if (toAdd.length) {
     const range = tab.getRange(
-      tab.getLastRow() + 1, 1, toAdd.length, toAdd[0].length);
+      lastRow + 1, 1, toAdd.length, toAdd[0].length);
     range.setValues(toAdd);
   }
 }
@@ -217,8 +229,3 @@ export function disableTriggers(): void {
     }
   }
 }
-
-function setupSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]) {
-  updateSettingsTab(sheet, defaults);
-}
-

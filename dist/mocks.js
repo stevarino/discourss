@@ -139,6 +139,7 @@ export class MockRange {
                 this.sheet.setCell(this.startRow - 1 + r, this.startCol - 1 + c, values[r][c]);
             }
         }
+        return this;
     }
     setBackground() { return this; }
     setTextStyle() { return this; }
@@ -177,6 +178,9 @@ class MockWorksheet {
             }
         }
         return maxRow + 1;
+    }
+    getLastColumn() {
+        return Math.max(...Array.from(this.cells.keys()).map(k => parseInt(k.split(',')[1], 10))) + 1;
     }
     getDataRange() {
         if (this.cells.size === 0) {

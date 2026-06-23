@@ -12,47 +12,49 @@ function newTextStyle() {
 export function setupFeedsTab(sheet) {
     // Creates the Feeds tab and adds any missing columns.
     let tab = sheet.getSheetByName(FEEDS_TAB);
+    let values = [[]];
+    let lastCol = 0;
+    let range;
     if (tab === null) {
         tab = sheet.insertSheet(FEEDS_TAB);
+        range = tab.getDataRange();
+        values = [[]];
     }
-    const range = tab.getDataRange();
-    const rows = range.getValues();
-    while (rows.length < 2) {
-        rows.push([]);
+    else {
+        lastCol = tab.getLastColumn();
+        range = tab.getDataRange();
+        values = range.getValues();
     }
-    // ensure rectangle rows (should be...)
-    const cols = Math.max(rows[0].length, rows[1].length);
-    for (let i = 0; i < cols; i++) {
+    // row A is identifier, row B is help text
+    while (values.length < 2) {
+        values.push([]);
+    }
+    // extend values array.
+    for (let i = 0; i < values[0].length; i++) {
         for (let j = 0; j < 2; j++) {
-            if (rows[j].length == i) {
-                rows[j][i] = '';
+            if (values[j].length == i) {
+                values[j][i] = '';
             }
         }
     }
     // add missing columns
     const newData = [[], []];
     for (const header of EXPECTED_HEADERS) {
-        if (!rows[0].includes(header)) {
-            const index = rows[0].length;
+        if (!values[0].includes(header)) {
+            const index = values[0].length;
             const { label, help } = SHEET_HEADERS[HEADER_LOOKUP[header]];
-            rows[0][index] = label;
-            rows[1][index] = help;
+            values[0][index] = label;
+            values[1][index] = help;
             newData[0].push(label);
             newData[1].push(help);
         }
     }
     if (newData[0].length > 0) {
-        const rowA = tab.getRange(1, cols + 1, 1, newData[0].length);
-        const rowB = tab.getRange(2, cols + 1, 1, newData[0].length);
-        rowA.setValues([newData[0]]);
-        rowB.setValues([newData[1]]);
-        rowA.setBackground('#4285f4'); // cornflower blue
-        rowA.setTextStyle(newTextStyle().setFontSize(16).setBold(true)
+        const range = tab.getRange(1, lastCol + 1, 2, newData[0].length);
+        range.setValues(newData).setBackground('#4285f4').setTextStyle(newTextStyle().setFontSize(16).setBold(true)
             .setForegroundColor('#ffffff').build());
-        rowB.setBackground('#4285f4'); // cornflower blue
-        rowB.setTextStyle(newTextStyle().setFontSize(10).setBold(false)
-            .setForegroundColor('#ffffff').build());
-        tab.autoResizeColumns(cols + 1, newData[0].length);
+        tab.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
+        tab.autoResizeColumns(lastCol + 1, newData[0].length);
     }
 }
 export function readSettingsTab(sheet) {
@@ -62,8 +64,17 @@ export function readSettingsTab(sheet) {
     }
     return [settingsTab, settingsTab.getDataRange().getValues()];
 }
-export function updateSettingsTab(sheet, defaults) {
-    const [tab, values] = readSettingsTab(sheet);
+export function setupSettingsTab(sheet, defaults) {
+    let tab = sheet.getSheetByName(SETTINGS_TAB);
+    let values = [[]];
+    let lastRow = 0;
+    if (tab === null) {
+        tab = sheet.insertSheet(SETTINGS_TAB);
+    }
+    else {
+        values = tab.getDataRange().getValues();
+        lastRow = tab.getLastRow();
+    }
     const exists = new Set(values.map(row => row[0]).filter(v => v));
     const toAdd = [];
     for (const [key, val, help] of defaults) {
@@ -72,7 +83,7 @@ export function updateSettingsTab(sheet, defaults) {
         }
     }
     if (toAdd.length) {
-        const range = tab.getRange(tab.getLastRow() + 1, 1, toAdd.length, toAdd[0].length);
+        const range = tab.getRange(lastRow + 1, 1, toAdd.length, toAdd[0].length);
         range.setValues(toAdd);
     }
 }
@@ -195,7 +206,4 @@ export function disableTriggers() {
             ScriptApp.deleteTrigger(trigger);
         }
     }
-}
-function setupSettingsTab(sheet, defaults) {
-    updateSettingsTab(sheet, defaults);
 }

@@ -5,7 +5,7 @@ import { SafeFeed, Spreadsheet, CELL_VALUE, Worksheet, SHEET_HEADER_TYPES, BaseC
 import { LOG_RECORD } from './context.js';
 export declare function setupFeedsTab(sheet: Spreadsheet): void;
 export declare function readSettingsTab(sheet: Spreadsheet): [Worksheet, CELL_VALUE[][]];
-export declare function updateSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]): void;
+export declare function setupSettingsTab(sheet: Spreadsheet, defaults: [string, CELL_VALUE, string][]): void;
 /**
  * Given an array of logs, inserts the logs into the `logs` tab.
  */
