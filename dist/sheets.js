@@ -55,6 +55,18 @@ export function setupFeedsTab(sheet) {
             .setForegroundColor('#ffffff').build());
         tab.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
         tab.autoResizeColumns(lastCol + 1, newData[0].length);
+        const columnWidthMults = [
+            [SHEET_HEADERS.feed.label, 4],
+            [SHEET_HEADERS.discord.label, 2],
+            [SHEET_HEADERS.status.label, 8],
+        ];
+        for (const [label, mult] of columnWidthMults) {
+            const feedIndex = newData[0].indexOf(label) + 1;
+            if (feedIndex) {
+                const width = tab.getColumnWidth(feedIndex + lastCol);
+                tab.setColumnWidth(feedIndex + lastCol, width * mult);
+            }
+        }
     }
 }
 export function readSettingsTab(sheet) {

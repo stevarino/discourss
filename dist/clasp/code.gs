@@ -284,6 +284,18 @@ function setupFeedsTab(sheet) {
             .setForegroundColor('#ffffff').build());
         tab.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
         tab.autoResizeColumns(lastCol + 1, newData[0].length);
+        const columnWidthMults = [
+            [SHEET_HEADERS.feed.label, 4],
+            [SHEET_HEADERS.discord.label, 2],
+            [SHEET_HEADERS.status.label, 8],
+        ];
+        for (const [label, mult] of columnWidthMults) {
+            const feedIndex = newData[0].indexOf(label) + 1;
+            if (feedIndex) {
+                const width = tab.getColumnWidth(feedIndex + lastCol);
+                tab.setColumnWidth(feedIndex + lastCol, width * mult);
+            }
+        }
     }
 }
 function readSettingsTab(sheet) {
@@ -531,7 +543,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-258-731-617';
+const version = '1-782-272-480-082';
 
 /**
  * index.js - main entry point for code
