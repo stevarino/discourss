@@ -2,6 +2,7 @@
  * rss.js - functions related to processing RSS feeds.
  */
 import { STATUS } from './common.js';
+import { buildEmbed } from './discord.js';
 /**
  * Process Feed
  */
@@ -23,7 +24,7 @@ export function processFeed(feed, ctx) {
     return parseRssXml(res.getContentText(), feed, ctx);
 }
 function parseRssXml(content, feed, ctx) {
-    var _a, _b;
+    var _a;
     const msg = {
         username: feed.discord,
         embeds: [],
@@ -46,34 +47,19 @@ function parseRssXml(content, feed, ctx) {
         status = 'no items';
     }
     for (const item of items) {
-        const embed = {
-            title: (_a = item.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
-            url: (_b = item.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
-            fields: [],
-        };
-        const guid = item.getChild('guid').getText();
-        if (ctx.debug) {
-            embed.fields.push({ name: 'guid', value: guid });
+        const guid = (_a = item.getChild('guid')) === null || _a === void 0 ? void 0 : _a.getText();
+        if (!guid) {
+            ctx.warn(`GUID not specified on feed item. Skipping.`);
+            continue;
         }
-        if (firstGuid === '') {
+        if (!firstGuid) {
             firstGuid = guid;
         }
         if (guid === feed.guid) {
             foundLast = true;
             break;
         }
-        const $ = Cheerio.load(item.getChild('description').getValue());
-        const image = $('img').attr('src');
-        if (image) {
-            if (ctx.image_format.value == 'image') {
-                embed.image = { url: image };
-            }
-            else if (ctx.image_format.value == 'thumbnail') {
-                embed.thumbnail = { url: image };
-            }
-        }
-        embed.description = [...$("p")].map(el => $(el).text()).join('\n\n').trim();
-        msg.embeds.push(embed);
+        msg.embeds.push(buildEmbed(ctx, item));
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not

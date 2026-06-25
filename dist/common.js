@@ -1,6 +1,13 @@
 /**
  * common.js - common interfaces, types, and constants.
  */
+/** If test is truthy, return test, otherwise return other (or undefined) */
+export function truthy(test, other) {
+    if (test) {
+        return test;
+    }
+    return other;
+}
 export const CONFIG = {
     LOG_TO_STDERR: false,
 };
@@ -32,7 +39,7 @@ export const SHEET_HEADERS = {
     },
     guid: {
         label: 'GUID',
-        help: 'Latest review; set to 0 to push all',
+        help: 'Latest feed item; set to 0 to push all',
     },
     status: {
         label: 'Status',
@@ -41,3 +48,12 @@ export const SHEET_HEADERS = {
 };
 export const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(v => v.help !== '').map(v => v.label);
 export const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k]));
+/**
+ * Fetcher code
+ */
+/** Fetcher object for use in context. */
+export class Fetcher {
+    fetch(url, req) {
+        return UrlFetchApp.fetch(url, req);
+    }
+}

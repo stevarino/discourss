@@ -1,7 +1,6 @@
 /** mocks.ts - Mocks used in testing. */
 import * as cheerio from 'cheerio';
-import { Spreadsheet, CELL_VALUE, Worksheet, BaseContext } from './common.js';
-import { FetchRequest, FetchResponse, Fetcher } from "./fetch.js";
+import { Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement, FetchRequest, FetchResponse, Fetcher } from './common.js';
 export declare function createTestContext(sheet: Spreadsheet): BaseContext;
 export declare class MockResponse implements FetchResponse {
     private responseCode;
@@ -22,19 +21,19 @@ export declare class MockFetcher extends Fetcher {
     setDefaultResponse(contentText: string, responseCode?: number): void;
     clear(): void;
 }
-export declare class MockXmlElement {
+export declare class MockXmlElement implements XmlElement {
     private $;
     private node;
     constructor($: cheerio.CheerioAPI, node: any);
-    getChild(name: string): MockXmlElement | null;
-    getChildren(name: string): MockXmlElement[];
+    getChild(name: string): XmlElement | null;
+    getChildren(name: string): XmlElement[];
     getText(): string;
     getValue(): string;
 }
-export declare class MockXmlDocument {
+export declare class MockXmlDocument implements XmlDocument {
     private $;
     constructor($: cheerio.CheerioAPI);
-    getRootElement(): MockXmlElement | null;
+    getRootElement(): XmlElement | null;
 }
 export declare const MockXmlService: {
     parse(xml: string): MockXmlDocument;

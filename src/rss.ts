@@ -2,8 +2,9 @@
  * rss.js - functions related to processing RSS feeds.
  */
 
-import {Result, STATUS, Message, Embed, SafeFeed } from './common.js';
-import {Context} from './context.js';
+import { Result, STATUS, Message, SafeFeed, XmlDocument } from './common.js';
+import { Context } from './context.js';
+import { buildEmbed } from './discord.js';
 
 /**
  * Process Feed
@@ -34,7 +35,7 @@ function parseRssXml(content: string, feed: SafeFeed, ctx: Context): Result {
     embeds: [],
   }
 
-  const doc = XmlService.parse(content.trim());
+  const doc: XmlDocument = XmlService.parse(content.trim());
   const root = doc.getRootElement();
   if (!root) {
     throw Error('Failed to parse feed');
@@ -53,38 +54,19 @@ function parseRssXml(content: string, feed: SafeFeed, ctx: Context): Result {
     status = 'no items';
   }
   for (const item of items) {
-    const embed: Embed = {
-      title: item.getChild("title")?.getText(),
-      url: item.getChild('link')?.getText(),
-      fields: [],
+    const guid = item.getChild('guid')?.getText();
+    if (!guid) {
+      ctx.warn(`GUID not specified on feed item. Skipping.`)
+      continue;
     }
-    const guid = item.getChild('guid')!.getText();
-    if (ctx.debug) {
-      embed.fields.push({name: 'guid', value: guid});
-    }
-    if (firstGuid === '') {
+    if (!firstGuid) {
       firstGuid = guid;
     }
     if (guid === feed.guid) {
       foundLast = true;
       break;
     }
-
-    const $ = Cheerio.load(item.getChild('description')!.getValue());
-
-    const image = $('img').attr('src');
-    if (image) {
-      if (ctx.image_format.value == 'image') {
-        embed.image = {url: image};
-      } else if (ctx.image_format.value == 'thumbnail') {
-        embed.thumbnail = {url: image};
-      }
-    }
-
-    embed.description = [...$("p")].map(el =>
-      $(el).text()
-    ).join('\n\n').trim();
-    msg.embeds.push(embed);
+    msg.embeds.push(buildEmbed(ctx, item));
   }
 
   // TODO: better separate this.

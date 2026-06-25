@@ -19,13 +19,15 @@
     "minor": "npm version minor && npm run push-version",
     "major": "npm version major && npm run push-version",
     "build": "tsc && npx eslint . && node dist/build.js -- --build",
-    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js"
+    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js dist/markdown.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@google/clasp": "^3.3.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@types/google-apps-script": "^2.0.9",
     "cheerio": "^1.2.0",
+    "domhandler": "^6.0.1",
     "eslint": "^10.5.0",
     "marked": "^18.0.5",
     "rollup": "^4.62.0",

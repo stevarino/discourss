@@ -2,8 +2,10 @@
 
 import * as cheerio from 'cheerio';
 
-import { Spreadsheet, CELL_VALUE, Worksheet, BaseContext } from './common.js';
-import { FetchRequest, FetchResponse, Fetcher } from "./fetch.js";
+import {
+  Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement,
+  FetchRequest, FetchResponse, Fetcher
+} from './common.js';
 
 // import { CONFIG } from './common.js';
 // CONFIG.LOG_TO_STDERR = true;
@@ -23,7 +25,7 @@ export class MockResponse implements FetchResponse {
   private responseCode: number;
   private contentText: string;
 
-  constructor(contentText: string, responseCode = 204) {
+  constructor(contentText: string, responseCode = 200) {
     this.contentText = contentText;
     this.responseCode = responseCode;
   }
@@ -43,7 +45,7 @@ export class MockFetcher extends Fetcher {
   requests: Record<string, {req: FetchRequest, res: FetchResponse}[]> = {};
 
   override fetch(url: string, req: FetchRequest): FetchResponse {
-    let res: FetchResponse|null = null;
+    let res: FetchResponse | null = null;
     for (const rule of this.rules) {
       if (typeof rule.urlPattern === 'string') {
         if (url === rule.urlPattern) {
@@ -63,11 +65,11 @@ export class MockFetcher extends Fetcher {
     if (!this.requests[url]) {
       this.requests[url] = [];
     }
-    this.requests[url].push({req, res});
+    this.requests[url].push({ req, res });
     return res;
   }
 
-  addMock(urlPattern: string | RegExp, contentText: string, responseCode = 204): void {
+  addMock(urlPattern: string | RegExp, contentText: string, responseCode = 200): void {
     this.rules.push({
       urlPattern,
       response: new MockResponse(contentText, responseCode)
@@ -85,7 +87,7 @@ export class MockFetcher extends Fetcher {
 }
 
 
-export class MockXmlElement {
+export class MockXmlElement implements XmlElement {
   private $: cheerio.CheerioAPI;
   private node: any;
 
@@ -94,12 +96,12 @@ export class MockXmlElement {
     this.node = node;
   }
 
-  getChild(name: string): MockXmlElement | null {
+  getChild(name: string): XmlElement | null {
     const childNode = this.$(this.node).children(name).first()[0];
     return childNode ? new MockXmlElement(this.$, childNode) : null;
   }
 
-  getChildren(name: string): MockXmlElement[] {
+  getChildren(name: string): XmlElement[] {
     const childrenNodes = this.$(this.node).children(name).toArray();
     return childrenNodes.map(node => new MockXmlElement(this.$, node));
   }
@@ -113,14 +115,14 @@ export class MockXmlElement {
   }
 }
 
-export class MockXmlDocument {
+export class MockXmlDocument implements XmlDocument {
   private $: cheerio.CheerioAPI;
 
   constructor($: cheerio.CheerioAPI) {
     this.$ = $;
   }
 
-  getRootElement(): MockXmlElement | null {
+  getRootElement(): XmlElement | null {
     const rootNode = this.$.root().children().first()[0];
     return rootNode ? new MockXmlElement(this.$, rootNode) : null;
   }

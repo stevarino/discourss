@@ -6,6 +6,7 @@ import { LOG_LEVEL, errorToString, log, Context } from './context.js';
 import { readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs, } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
+import { sendDiscordMessage } from './discord.js';
 export { setup, disableTriggers, setupTriggers } from './sheets.js';
 export function run(ctx) {
     var _a, _b;
@@ -74,57 +75,6 @@ function buildContext(sheet, logs) {
     }
     ctx.feedPatternRe = new RegExp(ctx.feed_pattern.value);
     return ctx;
-}
-/**
- * Send a message through discord using the webhook.
- */
-function sendDiscordMessage(embeds, feed, ctx) {
-    var _a;
-    if (!ctx.webhook.value) {
-        return;
-    }
-    const message = {
-        embeds,
-        username: ctx.appname.value,
-        content: String((_a = feed.discord) !== null && _a !== void 0 ? _a : ''),
-        avatar_url: (v => v ? v : undefined)(ctx.avatar_url.value),
-    };
-    // evaluate message contents
-    if (/^[0-9]+$/.test(message.content)) {
-        message.allowed_mentions = { users: [message.content] };
-        message.content = `<@${message.content}>`;
-    }
-    const signature = ctx.signature.value;
-    if (signature && signature.includes('%s')) {
-        message.content = signature.replace('%s', message.content);
-    }
-    const requests = [];
-    if (ctx.bundle.value) {
-        requests.push({
-            method: 'post',
-            payload: JSON.stringify(message),
-            muteHttpExceptions: true,
-            contentType: "application/json"
-        });
-    }
-    else {
-        for (const embed of message.embeds) {
-            let payload = { ...message };
-            payload.embeds = [embed];
-            requests.push({
-                method: 'post',
-                payload: JSON.stringify(payload),
-                muteHttpExceptions: true,
-                contentType: "application/json"
-            });
-        }
-    }
-    for (let i = 0; i < requests.length; i++) {
-        const response = ctx.fetch(ctx.webhook.value, requests[i]);
-        if (response.getResponseCode() != 204) {
-            throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-        }
-    }
 }
 export function onOpen() {
     var ui = SpreadsheetApp.getUi();

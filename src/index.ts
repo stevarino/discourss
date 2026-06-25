@@ -4,8 +4,7 @@
 
 import * as CheerioLib from 'cheerio';
 import {
-  Result, Message, SafeFeed, SHEET_HEADERS, CELL_VALUE, SHEET_HEADER_TYPES, 
-  Embed, STATUS, Spreadsheet
+  Result, SHEET_HEADERS, CELL_VALUE, SHEET_HEADER_TYPES, STATUS, Spreadsheet
 } from './common.js';
 import {
   LOG_LEVEL, LOG_RECORD, errorToString, log, Context
@@ -13,9 +12,9 @@ import {
 import { 
   readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs,
 } from './sheets.js';
-import { FetchRequest } from './fetch.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
+import { sendDiscordMessage } from './discord.js';
 
 export {setup, disableTriggers, setupTriggers} from './sheets.js';
 
@@ -90,59 +89,6 @@ function buildContext(sheet: Spreadsheet, logs: LOG_RECORD[]) {
   }
   ctx.feedPatternRe = new RegExp(ctx.feed_pattern.value);
   return ctx;
-}
-
-/**
- * Send a message through discord using the webhook.
- */
-function sendDiscordMessage(embeds: Embed[], feed: SafeFeed, ctx: Context) {
-  if (!ctx.webhook.value) {
-    return;
-  }
-  const message: Message = {
-    embeds,
-    username: ctx.appname.value,
-    content: String(feed.discord ?? ''),
-    avatar_url: (v => v ? v : undefined)(ctx.avatar_url.value),
-  };
-
-  // evaluate message contents
-  if (/^[0-9]+$/.test(message.content!)) {
-    message.allowed_mentions = {users: [message.content!]};
-    message.content = `<@${message.content!}>`;
-  }
-  const signature = ctx.signature.value;
-  if (signature && signature.includes('%s')) {
-    message.content = signature.replace('%s', message.content!);
-  }
-
-  const requests: FetchRequest[] = [];
-  if (ctx.bundle.value) {
-    requests.push({
-      method: 'post',
-      payload: JSON.stringify(message),
-      muteHttpExceptions: true,
-      contentType: "application/json"
-    } as const);
-  } else {
-    for (const embed of message.embeds) {
-      let payload = {...message}
-      payload.embeds = [embed]
-      requests.push({
-        method: 'post',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true,
-        contentType: "application/json"
-      } as const)
-    }
-  }
-
-  for (let i=0; i<requests.length; i++) {
-    const response = ctx.fetch(ctx.webhook.value, requests[i]);
-    if (response.getResponseCode() != 204) {
-      throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-    }
-  }
 }
 
 export function onOpen(): void {

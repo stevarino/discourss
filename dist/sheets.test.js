@@ -27,7 +27,7 @@ describe('sheets.ts unit tests', () => {
         assert.strictEqual(values.length, 2);
         // Header labels on the first row, help texts on the second row (without Index)
         assert.deepStrictEqual(values[0], ['Feed', 'Discord', 'Time', 'GUID', 'Status']);
-        assert.deepStrictEqual(values[1], ['RSS URL', 'User ID or Name', 'Auto; Set blank for forced rescan', 'Latest review; set to 0 to push all', 'Last run status']);
+        assert.deepStrictEqual(values[1], ['RSS URL', 'User ID or Name', 'Auto; Set blank for forced rescan', 'Latest feed item; set to 0 to push all', 'Last run status']);
     });
     test('readSettingsTab throws error when setting sheet does not exist', () => {
         const sheet = new MockSpreadsheet();

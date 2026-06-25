@@ -2,6 +2,14 @@
  * common.js - common interfaces, types, and constants.
  */
 
+/** If test is truthy, return test, otherwise return other (or undefined) */
+export function truthy<T>(test: T, other?: T): T | undefined {
+  if (test) {
+    return test;
+  }
+  return other;
+}
+
 export const CONFIG = {
   LOG_TO_STDERR: false,
 };
@@ -67,6 +75,7 @@ export interface SHEET_HEADER_TYPES {
   label: string,
   help: string,
 }
+
 type SHEET_HEADERS_FIELDS = 'index'|'feed'|'discord'|'time'|'guid'|'status';
 export const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES> = { // : {[key in keyof Feed]: string} = {
   index: {
@@ -87,7 +96,7 @@ export const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES> = {
   },
   guid: {
     label: 'GUID',
-    help: 'Latest review; set to 0 to push all',
+    help: 'Latest feed item; set to 0 to push all',
   },
   status: {
     label: 'Status',
@@ -139,3 +148,36 @@ export interface StyleBuilder {
   build(): StyleBuilderFinal
 }
 
+export interface XmlDocument {
+  getRootElement(): XmlElement | null;
+}
+
+export interface XmlElement {
+  getChild(name: string): XmlElement | null;
+  getChildren(name: string): XmlElement[];
+  getText(): string;
+  getValue(): string;
+}
+
+/**
+ * Fetcher code
+ */
+
+/** Fetcher object for use in context. */
+export class Fetcher {
+  fetch(url: string, req: FetchRequest): FetchResponse {
+    return UrlFetchApp.fetch(url, req);
+  }
+}
+
+export interface FetchRequest {
+  method?: 'get'|'post',
+  payload?: string,
+  muteHttpExceptions?: boolean,
+  contentType?: string,
+}
+
+export interface FetchResponse {
+  getResponseCode(): number
+  getContentText(): string;
+}

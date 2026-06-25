@@ -2,10 +2,9 @@
  * context.js - Context and Logging infrastructure.
  */
 
-import * as fetch from './fetch.js';
-import { CELL_VALUE, Spreadsheet, CONFIG } from './common.js';
-
-const DEFAULT_APP_NAME = 'DiscouRSS';
+import {
+  CELL_VALUE, Spreadsheet, CONFIG, Fetcher, FetchRequest, FetchResponse
+} from './common.js';
 
 export type LOG_RECORD = [number, LOG_LEVEL, string];
 
@@ -103,7 +102,7 @@ export class Context {
     ],
   );
   appname: Setting<string> = new Setting(
-    DEFAULT_APP_NAME as string,
+    '',
     'The Discord Bot name.'
   );
   avatar_url: Setting<string> = new Setting(
@@ -135,7 +134,7 @@ export class Context {
   feedHeaders: CELL_VALUE[] = [];
   logs: LOG_RECORD[] = [];
   debug = false;
-  fetcher: fetch.Fetcher;
+  fetcher: Fetcher;
 
   now: number;
   feedPatternRe: RegExp;
@@ -144,7 +143,7 @@ export class Context {
   defaults: [string, CELL_VALUE, string][] = [];
 
   constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]) {
-    this.fetcher = new fetch.Fetcher();
+    this.fetcher = new Fetcher();
     this.now = new Date().getTime();
     this.feedPatternRe = new RegExp('^https://');
     this.spreadsheet = spreadsheet;
@@ -206,7 +205,7 @@ export class Context {
     return errors;
   }
   
-  fetch(url: string, params: fetch.FetchRequest): fetch.FetchResponse {
+  fetch(url: string, params: FetchRequest): FetchResponse {
     return this.fetcher.fetch(url, params)
   }
 

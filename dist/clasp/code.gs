@@ -29,6 +29,13 @@
 /**
  * common.js - common interfaces, types, and constants.
  */
+/** If test is truthy, return test, otherwise return other (or undefined) */
+function truthy(test, other) {
+    if (test) {
+        return test;
+    }
+    return other;
+}
 var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";
@@ -56,7 +63,7 @@ const SHEET_HEADERS = {
     },
     guid: {
         label: 'GUID',
-        help: 'Latest review; set to 0 to push all',
+        help: 'Latest feed item; set to 0 to push all',
     },
     status: {
         label: 'Status',
@@ -65,17 +72,19 @@ const SHEET_HEADERS = {
 };
 const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(v => v.help !== '').map(v => v.label);
 const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k]));
-
 /**
- * fetch.js - Network interfaces and functions.
+ * Fetcher code
  */
+/** Fetcher object for use in context. */
 class Fetcher {
     fetch(url, req) {
         return UrlFetchApp.fetch(url, req);
     }
 }
 
-const DEFAULT_APP_NAME = 'DiscouRSS';
+/**
+ * context.js - Context and Logging infrastructure.
+ */
 var LOG_LEVEL;
 (function (LOG_LEVEL) {
     LOG_LEVEL[LOG_LEVEL["ERROR"] = 0] = "ERROR";
@@ -136,12 +145,12 @@ class Setting {
 }
 class Context {
     constructor(spreadsheet, logs) {
-        this.appname = new Setting(DEFAULT_APP_NAME, 'The Discord Bot name.');
-        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
         this.webhook = new Setting('', 'Discord channel webhook.', [
             [v => v !== '', 'Webhook must be set.'],
             [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
         ]);
+        this.appname = new Setting('', 'The Discord Bot name.');
+        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
         this.signature = new Setting('%s Posted:', 'The signature used for the title. "%s" is replaced with the discord user.');
         this.feed_pattern = new Setting('^https://', 'Regular expression that individual feeds are validated against.');
         this.feed_limit = new Setting(5, 'How many feeds to process per run.');
@@ -449,6 +458,262 @@ function disableTriggers() {
     }
 }
 
+/** Types of elements found in htmlparser2's DOM */
+var ElementType;
+(function (ElementType) {
+    /** Type for the root element of a document */
+    ElementType["Root"] = "root";
+    /** Type for Text */
+    ElementType["Text"] = "text";
+    /** Type for <? ... ?> */
+    ElementType["Directive"] = "directive";
+    /** Type for <!-- ... --> */
+    ElementType["Comment"] = "comment";
+    /** Type for <script> tags */
+    ElementType["Script"] = "script";
+    /** Type for <style> tags */
+    ElementType["Style"] = "style";
+    /** Type for Any tag */
+    ElementType["Tag"] = "tag";
+    /** Type for <![CDATA[ ... ]]> */
+    ElementType["CDATA"] = "cdata";
+    /** Type for <!doctype ...> */
+    ElementType["Doctype"] = "doctype";
+})(ElementType || (ElementType = {}));
+/**
+ * Tests whether an element is a tag or not.
+ * @param element Element to test
+ * @param element.type Node type discriminator to check.
+ */
+function isTag$1(element) {
+    return (element.type === ElementType.Tag ||
+        element.type === ElementType.Script ||
+        element.type === ElementType.Style);
+}
+// Exports for backwards compatibility
+/** Type for the root element of a document */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Root;
+/** Type for Text */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Text;
+/** Type for <? ... ?> */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Directive;
+/** Type for <!-- ... --> */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Comment;
+/** Type for <script> tags */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Script;
+/** Type for <style> tags */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Style;
+/** Type for Any tag */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Tag;
+/** Type for <![CDATA[ ... ]]> */
+// eslint-disable-next-line prefer-destructuring
+ElementType.CDATA;
+/** Type for <!doctype ...> */
+// eslint-disable-next-line prefer-destructuring
+ElementType.Doctype;
+
+/**
+ * Checks if `node` is an element node.
+ * @param node Node to check.
+ * @returns `true` if the node is an element node.
+ */
+function isTag(node) {
+    return isTag$1(node);
+}
+/**
+ * Checks if `node` is a CDATA node.
+ * @param node Node to check.
+ * @returns `true` if the node is a CDATA node.
+ */
+function isCDATA(node) {
+    return node.type === ElementType.CDATA;
+}
+/**
+ * Checks if `node` is a text node.
+ * @param node Node to check.
+ * @returns `true` if the node is a text node.
+ */
+function isText(node) {
+    return node.type === ElementType.Text;
+}
+
+/**
+ * markdown.js - Converts RSS HTML to Discord Markdown
+ *
+ * Odd things:
+ *  - removes empty hyperlinks `[](https://...)`
+ *  - does not render images
+ *  - does not handle tables
+ */
+/**
+ * Walks through a given cheerio node, doing a simple markdown conversion.
+ */
+function nodeToMarkdown(doc) {
+    return walkNodes(...doc.root().children());
+}
+function walkNodes(...nodes) {
+    return nodes.map(n => walkNode(n).join('')).join('').trim()
+        // collapse spaces around newlines
+        .replace(/[ ]*\n[ ]*/g, '\n')
+        // collapse spaces
+        .replace(/[ ]{2,}/g, ' ');
+}
+/**
+ * Recursively walks through a given node, returning text nodes.
+ */
+function walkNode(node, path) {
+    path = path !== null && path !== void 0 ? path : [];
+    if (isTag(node)) {
+        const [pre, post] = getEndBits(node);
+        const txt = [pre];
+        for (const child of node.childNodes) {
+            txt.push(...walkNode(child, [...path, node.tagName]));
+        }
+        txt.push(post);
+        // console.log([...path, node.tagName].join('.'), JSON.stringify(txt));
+        return txt;
+    }
+    if (isCDATA(node)) {
+        const children = [];
+        for (const child of node.childNodes) {
+            children.push(...walkNode(child, [...path, 'CDATA']));
+        }
+        return children;
+    }
+    if (isText(node)) {
+        return [node.data
+                .replace(markdownChars, match => `\\${match}`)
+                .replace(/[ \n\t]+/mg, ' ')];
+    }
+    return [];
+}
+/** mapping of tag names to end bits. */
+const endBits = {
+    p: ['', '\n\n'],
+    br: ['', '\n'],
+    b: ['**', '**'],
+    i: ['*', '*'],
+    u: ['__', '__'],
+    a: [
+        // if there's no child content, skip the link.
+        el => walkNodes(...el.childNodes) === '' ? '' : '[',
+        el => walkNodes(...el.childNodes) === '' ? '' : `](${el.attribs['href']})`
+    ],
+};
+/**
+ * given an element, return the pre and post bits
+ */
+function getEndBits(node) {
+    var _a;
+    return ((_a = endBits[node.tagName.toLocaleLowerCase()]) !== null && _a !== void 0 ? _a : ['', '']).map(bit => typeof bit === 'function' ? bit(node) : bit);
+}
+/** characters that need to be escaped. */
+const markdownChars = /\*|_|\[/g;
+
+/**
+ * feeds.js - Convert an RSS item to a Discord Embed.
+ */
+const DEFAULT_APP_NAME = 'DiscouRSS';
+const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
+function makeDomain(regex, logo, appname) {
+    return { regex, appname, logo: URL_ROOT + logo };
+}
+const KNOWN_DOMAINS = [
+    makeDomain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
+    makeDomain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
+];
+function matchDomain(url) {
+    for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
+        if (KNOWN_DOMAINS[i].regex.test(url !== null && url !== void 0 ? url : '')) {
+            return i;
+        }
+    }
+    return -1;
+}
+/**
+ * Finds the index of the homogenous domain in embeds, or undefined if not
+ * found or not homogenous.
+ */
+function findDomain(embeds) {
+    var _a;
+    const set = new Set(embeds.map(e => { var _a; return matchDomain((_a = e.url) !== null && _a !== void 0 ? _a : ''); }));
+    if (set.size > 1) {
+        return -1;
+    }
+    return (_a = set.values().next().value) !== null && _a !== void 0 ? _a : -1;
+}
+function buildEmbed(ctx, xml) {
+    var _a, _b;
+    const html = Cheerio.load(xml.getChild('description').getValue());
+    const embed = {
+        title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
+        url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
+        description: nodeToMarkdown(html),
+        fields: [],
+    };
+    if (ctx.debug) {
+        embed.fields.push({ name: 'guid', value: xml.getChild('guid').getText() });
+    }
+    const image = html('img').attr('src');
+    if (image) {
+        if (ctx.image_format.value == 'image') {
+            embed.image = { url: image };
+        }
+        else if (ctx.image_format.value == 'thumbnail') {
+            embed.thumbnail = { url: image };
+        }
+    }
+    return embed;
+}
+/**
+ * Send a message through discord using the webhook.
+ */
+function sendDiscordMessage(embeds, feed, ctx) {
+    var _a, _b;
+    if (!ctx.webhook.value) {
+        return;
+    }
+    const message = {
+        embeds,
+        username: ctx.appname.value,
+        content: String((_a = feed.discord) !== null && _a !== void 0 ? _a : ''),
+        avatar_url: truthy(ctx.avatar_url.value),
+    };
+    // evaluate message contents
+    if (/^[0-9]+$/.test(message.content)) {
+        message.allowed_mentions = { users: [message.content] };
+        message.content = `<@${message.content}>`;
+    }
+    const signature = ctx.signature.value;
+    if (signature && signature.includes('%s')) {
+        message.content = signature.replace('%s', message.content);
+    }
+    // if we're not bundling, copy message for each embed.
+    const messages = ctx.bundle.value ? [message] :
+        message.embeds.map(e => { return { ...message, embeds: [e] }; });
+    for (const msg of messages) {
+        const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
+        msg.avatar_url = truthy(ctx.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
+        msg.username = (_b = truthy(ctx.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
+        const response = ctx.fetch(ctx.webhook.value, {
+            method: 'post',
+            payload: JSON.stringify(msg),
+            muteHttpExceptions: true,
+            contentType: "application/json"
+        });
+        if (response.getResponseCode() != 204) {
+            throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
+        }
+    }
+}
+
 /**
  * rss.js - functions related to processing RSS feeds.
  */
@@ -473,7 +738,7 @@ function processFeed(feed, ctx) {
     return parseRssXml(res.getContentText(), feed, ctx);
 }
 function parseRssXml(content, feed, ctx) {
-    var _a, _b;
+    var _a;
     const msg = {
         username: feed.discord,
         embeds: [],
@@ -496,34 +761,19 @@ function parseRssXml(content, feed, ctx) {
         status = 'no items';
     }
     for (const item of items) {
-        const embed = {
-            title: (_a = item.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
-            url: (_b = item.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
-            fields: [],
-        };
-        const guid = item.getChild('guid').getText();
-        if (ctx.debug) {
-            embed.fields.push({ name: 'guid', value: guid });
+        const guid = (_a = item.getChild('guid')) === null || _a === void 0 ? void 0 : _a.getText();
+        if (!guid) {
+            ctx.warn(`GUID not specified on feed item. Skipping.`);
+            continue;
         }
-        if (firstGuid === '') {
+        if (!firstGuid) {
             firstGuid = guid;
         }
         if (guid === feed.guid) {
             foundLast = true;
             break;
         }
-        const $ = Cheerio.load(item.getChild('description').getValue());
-        const image = $('img').attr('src');
-        if (image) {
-            if (ctx.image_format.value == 'image') {
-                embed.image = { url: image };
-            }
-            else if (ctx.image_format.value == 'thumbnail') {
-                embed.thumbnail = { url: image };
-            }
-        }
-        embed.description = [...$("p")].map(el => $(el).text()).join('\n\n').trim();
-        msg.embeds.push(embed);
+        msg.embeds.push(buildEmbed(ctx, item));
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not
@@ -543,7 +793,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-272-480-082';
+const version = '1-782-416-511-393';
 
 /**
  * index.js - main entry point for code
@@ -615,57 +865,6 @@ function buildContext(sheet, logs) {
     }
     ctx.feedPatternRe = new RegExp(ctx.feed_pattern.value);
     return ctx;
-}
-/**
- * Send a message through discord using the webhook.
- */
-function sendDiscordMessage(embeds, feed, ctx) {
-    var _a;
-    if (!ctx.webhook.value) {
-        return;
-    }
-    const message = {
-        embeds,
-        username: ctx.appname.value,
-        content: String((_a = feed.discord) !== null && _a !== void 0 ? _a : ''),
-        avatar_url: (v => v ? v : undefined)(ctx.avatar_url.value),
-    };
-    // evaluate message contents
-    if (/^[0-9]+$/.test(message.content)) {
-        message.allowed_mentions = { users: [message.content] };
-        message.content = `<@${message.content}>`;
-    }
-    const signature = ctx.signature.value;
-    if (signature && signature.includes('%s')) {
-        message.content = signature.replace('%s', message.content);
-    }
-    const requests = [];
-    if (ctx.bundle.value) {
-        requests.push({
-            method: 'post',
-            payload: JSON.stringify(message),
-            muteHttpExceptions: true,
-            contentType: "application/json"
-        });
-    }
-    else {
-        for (const embed of message.embeds) {
-            let payload = { ...message };
-            payload.embeds = [embed];
-            requests.push({
-                method: 'post',
-                payload: JSON.stringify(payload),
-                muteHttpExceptions: true,
-                contentType: "application/json"
-            });
-        }
-    }
-    for (let i = 0; i < requests.length; i++) {
-        const response = ctx.fetch(ctx.webhook.value, requests[i]);
-        if (response.getResponseCode() != 204) {
-            throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-        }
-    }
 }
 function onOpen() {
     var ui = SpreadsheetApp.getUi();

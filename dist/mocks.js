@@ -1,6 +1,6 @@
 /** mocks.ts - Mocks used in testing. */
 import * as cheerio from 'cheerio';
-import { Fetcher } from "./fetch.js";
+import { Fetcher } from './common.js';
 // import { CONFIG } from './common.js';
 // CONFIG.LOG_TO_STDERR = true;
 export function createTestContext(sheet) {
@@ -14,7 +14,7 @@ export function createTestContext(sheet) {
     };
 }
 export class MockResponse {
-    constructor(contentText, responseCode = 204) {
+    constructor(contentText, responseCode = 200) {
         this.contentText = contentText;
         this.responseCode = responseCode;
     }
@@ -57,7 +57,7 @@ export class MockFetcher extends Fetcher {
         this.requests[url].push({ req, res });
         return res;
     }
-    addMock(urlPattern, contentText, responseCode = 204) {
+    addMock(urlPattern, contentText, responseCode = 200) {
         this.rules.push({
             urlPattern,
             response: new MockResponse(contentText, responseCode)

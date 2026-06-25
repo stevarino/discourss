@@ -1,8 +1,7 @@
 /**
  * context.js - Context and Logging infrastructure.
  */
-import * as fetch from './fetch.js';
-import { CELL_VALUE, Spreadsheet } from './common.js';
+import { CELL_VALUE, Spreadsheet, Fetcher, FetchRequest, FetchResponse } from './common.js';
 export type LOG_RECORD = [number, LOG_LEVEL, string];
 export declare enum LOG_LEVEL {
     ERROR = 0,
@@ -39,7 +38,7 @@ export declare class Context {
     feedHeaders: CELL_VALUE[];
     logs: LOG_RECORD[];
     debug: boolean;
-    fetcher: fetch.Fetcher;
+    fetcher: Fetcher;
     now: number;
     feedPatternRe: RegExp;
     spreadsheet: Spreadsheet;
@@ -48,7 +47,7 @@ export declare class Context {
     getDefaults(): [string, CELL_VALUE, string][];
     setSettings(settings: [string, CELL_VALUE][]): string[];
     validate(): string[];
-    fetch(url: string, params: fetch.FetchRequest): fetch.FetchResponse;
+    fetch(url: string, params: FetchRequest): FetchResponse;
     log(level: LOG_LEVEL, message: string): void;
     error(message: string): void;
     warn(message: string): void;

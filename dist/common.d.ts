@@ -1,6 +1,8 @@
 /**
  * common.js - common interfaces, types, and constants.
  */
+/** If test is truthy, return test, otherwise return other (or undefined) */
+export declare function truthy<T>(test: T, other?: T): T | undefined;
 export declare const CONFIG: {
     LOG_TO_STDERR: boolean;
 };
@@ -103,5 +105,31 @@ export interface StyleBuilder {
     setBold(isBold: boolean): StyleBuilder;
     setForegroundColor(color: string): StyleBuilder;
     build(): StyleBuilderFinal;
+}
+export interface XmlDocument {
+    getRootElement(): XmlElement | null;
+}
+export interface XmlElement {
+    getChild(name: string): XmlElement | null;
+    getChildren(name: string): XmlElement[];
+    getText(): string;
+    getValue(): string;
+}
+/**
+ * Fetcher code
+ */
+/** Fetcher object for use in context. */
+export declare class Fetcher {
+    fetch(url: string, req: FetchRequest): FetchResponse;
+}
+export interface FetchRequest {
+    method?: 'get' | 'post';
+    payload?: string;
+    muteHttpExceptions?: boolean;
+    contentType?: string;
+}
+export interface FetchResponse {
+    getResponseCode(): number;
+    getContentText(): string;
 }
 export {};
