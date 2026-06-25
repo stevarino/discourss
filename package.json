@@ -15,9 +15,6 @@
     "create-version": "clasp create-version \"$(node dist/build.js -- --version)\"",
     "version": "npm run push && npm run create-version",
     "deploy-prod": "clasp redeploy AKfycbxtvC7at1Ru1wBUFUexXzP2Pn5SSHCyil7U_Cwrr8Jk_WEqjNwP-cTQSOw4rHQt_y2IJQ -V \"$(node dist/build.js -- --head)\" -d \"$(node dist/build.js -- --version)\" ",
-    "patch": "npm version patch",
-    "minor": "npm version minor && npm run push-version",
-    "major": "npm version major && npm run push-version",
     "build": "tsc && npx eslint . && node dist/build.js -- --build",
     "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js dist/markdown.test.js"
   },
