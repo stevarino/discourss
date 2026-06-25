@@ -59,3 +59,20 @@ You can also set the `GUID` cell to a previous `guid` value (from the feed) to s
 Pull requests and new issues are welcome.
 
 AI was used for the generation of mock and test code. All the fun code was human-generated.
+
+### Deployment Instructions
+
+There are a total of six version systems to be aware of (not counting github stuff):
+
+ - AppsScript HEAD: untracked, AppsScript versions are snapshots of this.
+ - AppsScript Version: incremental snapshot counter.
+ - AppsScript Deployments: (currently unused) a deployment target for AppsScript Versions. Used primarily for static web app URLs.
+ - NPM Version: should map 1-1 with AppsScript Version, marked through git tags.
+ - `version.js`: deployed code versioning that changes on every build. May differ from AppsScript Version due to AppsScript HEAD deploys, but there will always be exactcly one `version.js` that ties MPM Version to AppsScript Version.
+ - Workplace Marketplace: TBD. Appars to be based on AppsScript Versions, not AppsScript Deployments.
+
+`npm run build` will increment `version.js` only. Combine it with `npm run push` to push the current code to AppsScript `HEAD`.
+
+`npm version patch` (and related) commands will create an NPM version (via git tags) and also create a persistent AppsScript Version. The AppsScript Version will have the NPM Version and `version.js` embedded in its description. You can run `npx clasp versions` to inspect the versions.
+
+TODO: document deployment to the marketplace.

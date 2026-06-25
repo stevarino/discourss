@@ -12,21 +12,21 @@ const KNOWN_DOMAINS = [
     makeDomain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
     makeDomain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
 ];
-function matchDomain(url) {
-    for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
-        if (KNOWN_DOMAINS[i].regex.test(url !== null && url !== void 0 ? url : '')) {
-            return i;
-        }
-    }
-    return -1;
-}
 /**
  * Finds the index of the homogenous domain in embeds, or undefined if not
  * found or not homogenous.
  */
 function findDomain(embeds) {
     var _a;
-    const set = new Set(embeds.map(e => { var _a; return matchDomain((_a = e.url) !== null && _a !== void 0 ? _a : ''); }));
+    const set = new Set(embeds.map((e) => {
+        var _a;
+        for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
+            if (KNOWN_DOMAINS[i].regex.test((_a = e.url) !== null && _a !== void 0 ? _a : '')) {
+                return i;
+            }
+        }
+        return -1;
+    }));
     if (set.size > 1) {
         return -1;
     }

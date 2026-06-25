@@ -60,6 +60,7 @@
     .button {
       position: absolute;
       right: 0;
+      top: -0.25em;
       text-decoration: none;
       font-weight: bold;
       outline: none;
@@ -72,7 +73,7 @@
       display: inline-block;
       letter-spacing: 0.05rem;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 1.25em;
       border-radius: 500px;
       overflow: hidden;
       background: var(--blurple);
@@ -215,6 +216,19 @@
 <h2>Contributing</h2>
 <p>Pull requests and new issues are welcome.</p>
 <p>AI was used for the generation of mock and test code. All the fun code was human-generated.</p>
+<h3>Deployment Instructions</h3>
+<p>There are a total of six version systems to be aware of (not counting github stuff):</p>
+<ul>
+<li>AppsScript HEAD: untracked, AppsScript versions are snapshots of this.</li>
+<li>AppsScript Version: incremental snapshot counter.</li>
+<li>AppsScript Deployments: (currently unused) a deployment target for AppsScript Versions. Used primarily for static web app URLs.</li>
+<li>NPM Version: should map 1-1 with AppsScript Version, marked through git tags.</li>
+<li><code>version.js</code>: deployed code versioning that changes on every build. May differ from AppsScript Version due to AppsScript HEAD deploys, but there will always be exactcly one <code>version.js</code> that ties MPM Version to AppsScript Version.</li>
+<li>Workplace Marketplace: TBD. Appars to be based on AppsScript Versions, not AppsScript Deployments.</li>
+</ul>
+<p><code>npm run build</code> will increment <code>version.js</code> only. Combine it with <code>npm run push</code> to push the current code to AppsScript <code>HEAD</code>.</p>
+<p><code>npm version patch</code> (and related) commands will create an NPM version (via git tags) and also create a persistent AppsScript Version. The AppsScript Version will have the NPM Version and <code>version.js</code> embedded in its description. You can run <code>npx clasp versions</code> to inspect the versions.</p>
+<p>TODO: document deployment to the marketplace.</p>
 
 
 <footer>
@@ -224,8 +238,8 @@
   &middot;
   <a href="https://discourss.stevarino.com/terms/">Terms of Use</a>
   &middot;
-  <a href="https://github.com/stevarino/discourss">Source Code</a>
+  <a href="https://github.com/stevarino/discourss">Github</a>
   &middot;
-  <a href="https://github.com/stevarino/discourss/issues">Report a Problem</a>
+  <a href="https://github.com/stevarino/discourss/issues/new">Report a Problem</a>
 </footer>
 </body></html>
