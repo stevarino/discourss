@@ -1,3 +1,6 @@
+/**
+ * context.js - Context and Logging infrastructure.
+ */
 import * as fetch from './fetch.js';
 import { CONFIG } from './common.js';
 const DEFAULT_APP_NAME = 'DiscouRSS';
@@ -74,12 +77,12 @@ class Setting {
 }
 export class Context {
     constructor(spreadsheet, logs) {
-        this.appname = new Setting(DEFAULT_APP_NAME, 'The Discord Bot name.');
-        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
         this.webhook = new Setting('', 'Discord channel webhook.', [
             [v => v !== '', 'Webhook must be set.'],
             [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
         ]);
+        this.appname = new Setting(DEFAULT_APP_NAME, 'The Discord Bot name.');
+        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
         this.signature = new Setting('%s Posted:', 'The signature used for the title. "%s" is replaced with the discord user.');
         this.feed_pattern = new Setting('^https://', 'Regular expression that individual feeds are validated against.');
         this.feed_limit = new Setting(5, 'How many feeds to process per run.');

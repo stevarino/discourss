@@ -1,3 +1,6 @@
+/**
+ * context.js - Context and Logging infrastructure.
+ */
 import * as fetch from './fetch.js';
 import { CELL_VALUE, Spreadsheet } from './common.js';
 export type LOG_RECORD = [number, LOG_LEVEL, string];
@@ -24,9 +27,9 @@ declare class Setting<T extends CELL_VALUE> {
     validate(): string | undefined;
 }
 export declare class Context {
+    webhook: Setting<string>;
     appname: Setting<string>;
     avatar_url: Setting<string>;
-    webhook: Setting<string>;
     signature: Setting<string>;
     feed_pattern: Setting<string>;
     feed_limit: Setting<number>;

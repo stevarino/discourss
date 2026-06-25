@@ -1,3 +1,6 @@
+/**
+ * context.js - Context and Logging infrastructure.
+ */
 
 import * as fetch from './fetch.js';
 import { CELL_VALUE, Spreadsheet, CONFIG } from './common.js';
@@ -91,13 +94,6 @@ class Setting<T extends CELL_VALUE> {
 }
 
 export class Context {
-  appname: Setting<string> = new Setting(
-    DEFAULT_APP_NAME as string,
-    'The Discord Bot name.'
-  );
-  avatar_url: Setting<string> = new Setting(
-    '', 
-    'URL to an image used for the Discord Bot.');
   webhook: Setting<string> = new Setting(
     '', 
     'Discord channel webhook.',
@@ -106,6 +102,13 @@ export class Context {
       [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
     ],
   );
+  appname: Setting<string> = new Setting(
+    DEFAULT_APP_NAME as string,
+    'The Discord Bot name.'
+  );
+  avatar_url: Setting<string> = new Setting(
+    '', 
+    'URL to an image used for the Discord Bot.');
   signature: Setting<string> = new Setting(
     '%s Posted:',
     'The signature used for the title. "%s" is replaced with the discord user.'

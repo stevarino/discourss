@@ -118,9 +118,103 @@
   <a href="https://workspace.google.com/marketplace/app/discourss/107272671119" class="button"><span>Get Started</span></a>
 </header>
 
-<h1>DiscouRSS - RSS to Discourse bridge via Google Sheets</h1>
-<p>DiscouRSS is a Google Sheets AppsScript that allows reads RSS Feeds (such as news, Letterboxd reviews, GoodReads activity) and pipe those events to a Discord channel, optionally attributing the post to a specific user.</p>
+<h1>DiscouRSS - RSS to Discord Bridge</h1>
+<p>DiscouRSS is a Google Sheets Addon that reads RSS Feeds (such as news, Letterboxd reviews, GoodReads activity) and pipe those events to a Discord channel.</p>
 <p>The configuration and execution is handled entirely within Google Sheets, allowing for easy management with no cost (beyond a Google account).</p>
+<h2>Setup</h2>
+<p>NOTE: This is currently in private beta.</p>
+<ul>
+<li><a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks">Create a webhook in Discord</a>.</li>
+<li><a href="https://workspace.google.com/u/0/marketplace/app/discourss/107272671119">Enable the Addon</a> in the Workplace Marketplace Store.</li>
+<li>Open a spreadsheet (<a href="https://sheets.new">blank is recommended</a>, but not necessary).</li>
+<li>Locate the <code>DisouRSS</code> menu under the <code>Extensions</code> menu.</li>
+<li>Start with <code>Setup</code> as that will create the necessary sheets and columns.</li>
+<li>Enter your RSS feed details in the <code>Feeds</code> tab.</li>
+<li>Enter the Discord Webhook under the <code>Settings</code> tab in the <code>webhook</code> field.</li>
+<li>Cick <code>Run</code> in the <code>DiscouRSS</code> menu to manualy test the settings.</li>
+<li>To run DiscouRSS automatically, click the <code>Enable</code> menu item.</li>
+</ul>
+<h2>Configuration</h2>
+<h3>Feed Tab</h3>
+<p><strong>Feed</strong> | String | URL of the RSS Feed
+<strong>Discord</strong> | String | User ID or Name to attribute to the update.
+<strong>Time</strong> | String | <em>(Internal)</em> Unix time of last update. Set to <code>0</code> to force a rescan.
+<strong>GUID</strong> | String | <em>(Internal)</em> Latest feed item. Set to 0 to push all feed items.
+<strong>Status</strong> | String | <em>(Informative)</em> Last run status for the given feed.</p>
+<h3>Settings Tab</h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>webhook</strong></td>
+<td>String</td>
+<td>``</td>
+<td>Discord channel webhook.</td>
+</tr>
+<tr>
+<td><strong>appname</strong></td>
+<td>String</td>
+<td><code>DiscouRSS</code></td>
+<td>The Discord Bot name.</td>
+</tr>
+<tr>
+<td><strong>avatar_url</strong></td>
+<td>String</td>
+<td>``</td>
+<td>URL to an image used for the Discord Bot. Leave blank and the bot will try to determine the proper icon to be used.</td>
+</tr>
+<tr>
+<td><strong>signature</strong></td>
+<td>String</td>
+<td><code>%s Posted:</code></td>
+<td>The signature used for the title. &quot;%s&quot; is replaced with the discord user.</td>
+</tr>
+<tr>
+<td><strong>feed_pattern</strong></td>
+<td>String</td>
+<td><code>https://</code></td>
+<td>Regular expression that individual feeds are validated against.</td>
+</tr>
+<tr>
+<td><strong>feed_limit</strong></td>
+<td>Integer</td>
+<td><code>5</code></td>
+<td>How many feeds to process per run.</td>
+</tr>
+<tr>
+<td><strong>feed_frequency</strong></td>
+<td>Integer</td>
+<td>3600</td>
+<td>How long a single feed will be scanned (in seconds).</td>
+</tr>
+<tr>
+<td><strong>image_format</strong></td>
+<td>String</td>
+<td><code>image</code></td>
+<td>How to attach the image from the feed item (image</td>
+</tr>
+<tr>
+<td><strong>bundle</strong></td>
+<td>Boolean</td>
+<td><code>FALSE</code></td>
+<td>Whether or not to bundle the items as a single discord message.</td>
+</tr>
+</tbody></table>
+<h3>Debugging</h3>
+<p>Detailed execution details can be found in the <code>Logs</code> tab.</p>
+<p>By default, the feeds are scanned every five minutes, with each feed scanned once an hour. To override this behavior and force a feed to be rescanned, set the <code>Time</code> column to <code>0</code>.</p>
+<p>Feed items will only be sent to Discord if they are &quot;new,&quot; as determined by the <code>GUID</code> column. Setting the cell to an empty value will cause the feed to revert to its initial state with the latest feed item used to determine &quot;new&quot; moving forward.</p>
+<p>Setting a feed&#39;s <code>GUID</code> cell to <code>0</code> will cause all feed items to be considered new.</p>
+<p>You can also set the <code>GUID</code> cell to a previous <code>guid</code> value (from the feed) to send all subsequent feed items. There is no way to send a specific feed item currently.</p>
+<h2>Contributing</h2>
+<p>Pull requests and new issues are welcome.</p>
+<p>AI was used for the generation of mock and test code. All the fun code was human-generated.</p>
 
 
 <footer>

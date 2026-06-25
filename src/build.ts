@@ -5,10 +5,15 @@
  */
 
 import * as fs from 'node:fs/promises';
-import { rollup, OutputChunk } from 'rollup';
 import path from 'path';
 import { execSync } from 'node:child_process';
+
+// markdown parsing
 import { marked } from 'marked';
+
+// rollup
+import { rollup, OutputChunk } from 'rollup';
+import * as resolve from '@rollup/plugin-node-resolve';
 
 import {version} from './version.js';
 
@@ -82,6 +87,8 @@ async function buildWeb() {
   const base_dir = './doc/md/';
   const output_dir = './doc/html/';
 
+  await fs.copyFile('README.md', path.join(base_dir, 'index.md'));
+
   // empty the output directory
   for (let filename of await fs.readdir(output_dir)) {
     await fs.rm(path.join(output_dir, filename), {recursive: true, force: true});
@@ -113,7 +120,8 @@ async function build() {
   await writeVersion();
   await buildWeb();
   const bundle = await rollup({
-      input: entryFile,
+    input: entryFile,
+    plugins: [resolve.nodeResolve()]
   });
   fs.mkdir(directory, {recursive: true});
 
