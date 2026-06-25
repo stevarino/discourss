@@ -1,11 +1,12 @@
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
-import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP } from './common.js';
-import { LOG_LEVEL, errorToString, Context } from './context.js';
-const SETTINGS_TAB = 'settings';
-const FEEDS_TAB = 'feeds';
-const LOGS_TAB = 'logs';
+import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, } from './common.js';
+import { LOG_LEVEL, errorToString } from './context.js';
+export const SETTINGS_TAB = 'Settings';
+export const FEEDS_TAB = 'Feeds';
+export const LOGS_TAB = 'Logs';
+export const TIMER_TRIGGER = 'timerTrigger';
 function newTextStyle() {
     return SpreadsheetApp.newTextStyle();
 }
@@ -198,24 +199,4 @@ export function updateFeedsTab(tab, row, column, value, feedHeaders) {
     const col = getFeedColumn(feedHeaders, column.label);
     tab.getRange(row + 1, col + 1, 1, 1).setValues([[value]]);
     return;
-}
-export function setup() {
-    const ctx = new Context(SpreadsheetApp.getActive());
-    setupFeedsTab(ctx.spreadsheet);
-    setupSettingsTab(ctx.spreadsheet, ctx.defaults);
-    setupTriggers();
-}
-export function setupTriggers() {
-    const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
-    if (!triggers.includes('timerTrigger')) {
-        ScriptApp.newTrigger('timerTrigger')
-            .timeBased().everyMinutes(5).create();
-    }
-}
-export function disableTriggers() {
-    for (const trigger of ScriptApp.getProjectTriggers()) {
-        if (trigger.getHandlerFunction() === 'timerTrigger') {
-            ScriptApp.deleteTrigger(trigger);
-        }
-    }
 }

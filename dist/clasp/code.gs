@@ -241,9 +241,10 @@ class Context {
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
-const SETTINGS_TAB = 'settings';
-const FEEDS_TAB = 'feeds';
-const LOGS_TAB = 'logs';
+const SETTINGS_TAB = 'Settings';
+const FEEDS_TAB = 'Feeds';
+const LOGS_TAB = 'Logs';
+const TIMER_TRIGGER = 'timerTrigger';
 function newTextStyle() {
     return SpreadsheetApp.newTextStyle();
 }
@@ -436,26 +437,6 @@ function updateFeedsTab(tab, row, column, value, feedHeaders) {
     const col = getFeedColumn(feedHeaders, column.label);
     tab.getRange(row + 1, col + 1, 1, 1).setValues([[value]]);
     return;
-}
-function setup() {
-    const ctx = new Context(SpreadsheetApp.getActive());
-    setupFeedsTab(ctx.spreadsheet);
-    setupSettingsTab(ctx.spreadsheet, ctx.defaults);
-    setupTriggers();
-}
-function setupTriggers() {
-    const triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
-    if (!triggers.includes('timerTrigger')) {
-        ScriptApp.newTrigger('timerTrigger')
-            .timeBased().everyMinutes(5).create();
-    }
-}
-function disableTriggers() {
-    for (const trigger of ScriptApp.getProjectTriggers()) {
-        if (trigger.getHandlerFunction() === 'timerTrigger') {
-            ScriptApp.deleteTrigger(trigger);
-        }
-    }
 }
 
 /** Types of elements found in htmlparser2's DOM */
@@ -793,7 +774,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-419-521-085';
+const version = '1-782-421-260-044';
 
 /**
  * index.js - main entry point for code
@@ -867,14 +848,52 @@ function buildContext(sheet, logs) {
     return ctx;
 }
 function onOpen() {
-    var ui = SpreadsheetApp.getUi();
-    // Or DocumentApp, SlidesApp or FormApp.
-    ui.createMenu('DiscouRSS')
-        .addItem('Run', 'run')
-        .addItem('Disable', 'disableTriggers')
-        .addItem('Enable', 'setupTriggers')
-        .addItem('Setup', 'setup')
-        .addToUi();
+    buildMenu();
+}
+function hasSheet(name) {
+    return Boolean(SpreadsheetApp.getActive().getSheetByName(name));
+}
+function buildMenu() {
+    const menu = SpreadsheetApp.getUi().createAddonMenu();
+    const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
+    if (isReady)
+        menu.addItem('Run', 'run');
+    if (getTimeTrigger()) {
+        menu.addItem('Disable', 'disableTriggers');
+    }
+    else {
+        menu.addItem('Enable', 'setupTriggers');
+    }
+    menu.addItem('Setup', 'sheetsSetup');
+    menu.addToUi();
+}
+function setupTriggers() {
+    if (getTimeTrigger() === undefined) {
+        ScriptApp.newTrigger('timerTrigger')
+            .timeBased().everyMinutes(5).create();
+    }
+    buildMenu();
+}
+function disableTriggers() {
+    const trigger = getTimeTrigger();
+    if (trigger) {
+        ScriptApp.deleteTrigger(trigger);
+    }
+    buildMenu();
+}
+function sheetsSetup() {
+    const ctx = new Context(SpreadsheetApp.getActive());
+    setupFeedsTab(ctx.spreadsheet);
+    setupSettingsTab(ctx.spreadsheet, ctx.defaults);
+    buildMenu();
+}
+function getTimeTrigger() {
+    for (const trigger of ScriptApp.getProjectTriggers()) {
+        if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
+            return trigger;
+        }
+    }
+    return null;
 }
 /**
  * Executes run when triggered by timer.

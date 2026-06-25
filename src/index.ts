@@ -10,13 +10,12 @@ import {
   LOG_LEVEL, LOG_RECORD, errorToString, log, Context
 } from './context.js';
 import { 
-  readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs,
+  readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs, FEEDS_TAB, SETTINGS_TAB,
+  TIMER_TRIGGER, setupFeedsTab, setupSettingsTab
 } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
 import { sendDiscordMessage } from './discord.js';
-
-export {setup, disableTriggers, setupTriggers} from './sheets.js';
 
 declare global {
   const Cheerio: typeof CheerioLib;
@@ -92,14 +91,56 @@ function buildContext(sheet: Spreadsheet, logs: LOG_RECORD[]) {
 }
 
 export function onOpen(): void {
-  var ui = SpreadsheetApp.getUi();
-  // Or DocumentApp, SlidesApp or FormApp.
-  ui.createMenu('DiscouRSS')
-      .addItem('Run', 'run')
-      .addItem('Disable', 'disableTriggers')
-      .addItem('Enable', 'setupTriggers')
-      .addItem('Setup', 'setup')
-      .addToUi();
+  buildMenu();
+}
+
+function hasSheet(name: string) {
+  return Boolean(SpreadsheetApp.getActive().getSheetByName(name));
+}
+
+function buildMenu(): void {
+  const menu = SpreadsheetApp.getUi().createAddonMenu();
+  const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
+  if (isReady) menu.addItem('Run', 'run');
+  if (getTimeTrigger()) {
+    menu.addItem('Disable', 'disableTriggers')
+  } else {
+    menu.addItem('Enable', 'setupTriggers')
+  }
+  menu.addItem('Setup', 'sheetsSetup');
+  menu.addToUi()
+}
+
+export function setupTriggers(): void {
+  if (getTimeTrigger() === undefined) {
+    ScriptApp.newTrigger('timerTrigger')
+      .timeBased().everyMinutes(5).create();
+  }
+  buildMenu();
+}
+
+export function disableTriggers(): void {
+  const trigger = getTimeTrigger();
+  if (trigger) {
+    ScriptApp.deleteTrigger(trigger);
+  }
+  buildMenu();
+}
+
+export function sheetsSetup(): void {
+  const ctx = new Context(SpreadsheetApp.getActive());
+  setupFeedsTab(ctx.spreadsheet);
+  setupSettingsTab(ctx.spreadsheet, ctx.defaults);
+  buildMenu();
+}
+
+export function getTimeTrigger(): GoogleAppsScript.Script.Trigger | null {
+  for  (const trigger of ScriptApp.getProjectTriggers()) {
+    if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
+      return trigger;
+    }
+  }
+  return null;
 }
 
 /**

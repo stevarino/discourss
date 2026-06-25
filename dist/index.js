@@ -3,11 +3,10 @@
  */
 import { SHEET_HEADERS, STATUS } from './common.js';
 import { LOG_LEVEL, errorToString, log, Context } from './context.js';
-import { readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs, } from './sheets.js';
+import { readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs, FEEDS_TAB, SETTINGS_TAB, TIMER_TRIGGER, setupFeedsTab, setupSettingsTab } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
 import { sendDiscordMessage } from './discord.js';
-export { setup, disableTriggers, setupTriggers } from './sheets.js';
 export function run(ctx) {
     var _a, _b;
     const spreadsheet = SpreadsheetApp.getActive();
@@ -77,14 +76,52 @@ function buildContext(sheet, logs) {
     return ctx;
 }
 export function onOpen() {
-    var ui = SpreadsheetApp.getUi();
-    // Or DocumentApp, SlidesApp or FormApp.
-    ui.createMenu('DiscouRSS')
-        .addItem('Run', 'run')
-        .addItem('Disable', 'disableTriggers')
-        .addItem('Enable', 'setupTriggers')
-        .addItem('Setup', 'setup')
-        .addToUi();
+    buildMenu();
+}
+function hasSheet(name) {
+    return Boolean(SpreadsheetApp.getActive().getSheetByName(name));
+}
+function buildMenu() {
+    const menu = SpreadsheetApp.getUi().createAddonMenu();
+    const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
+    if (isReady)
+        menu.addItem('Run', 'run');
+    if (getTimeTrigger()) {
+        menu.addItem('Disable', 'disableTriggers');
+    }
+    else {
+        menu.addItem('Enable', 'setupTriggers');
+    }
+    menu.addItem('Setup', 'sheetsSetup');
+    menu.addToUi();
+}
+export function setupTriggers() {
+    if (getTimeTrigger() === undefined) {
+        ScriptApp.newTrigger('timerTrigger')
+            .timeBased().everyMinutes(5).create();
+    }
+    buildMenu();
+}
+export function disableTriggers() {
+    const trigger = getTimeTrigger();
+    if (trigger) {
+        ScriptApp.deleteTrigger(trigger);
+    }
+    buildMenu();
+}
+export function sheetsSetup() {
+    const ctx = new Context(SpreadsheetApp.getActive());
+    setupFeedsTab(ctx.spreadsheet);
+    setupSettingsTab(ctx.spreadsheet, ctx.defaults);
+    buildMenu();
+}
+export function getTimeTrigger() {
+    for (const trigger of ScriptApp.getProjectTriggers()) {
+        if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
+            return trigger;
+        }
+    }
+    return null;
 }
 /**
  * Executes run when triggered by timer.
