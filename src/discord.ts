@@ -7,7 +7,6 @@ import { Embed, Message, SafeFeed, truthy, XmlElement } from './common.js';
 import { nodeToMarkdown } from './markdown.js';
 
 const DEFAULT_APP_NAME = 'DiscouRSS';
-
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
 
 function makeDomain(regex: RegExp, logo: string, appname: string) {
@@ -19,21 +18,19 @@ const KNOWN_DOMAINS = [
   makeDomain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
 ];
 
-function matchDomain(url: string): number {
-  for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
-    if (KNOWN_DOMAINS[i].regex.test(url ?? '')) {
-      return i;
-    }
-  }
-  return -1;
-}
-
 /** 
  * Finds the index of the homogenous domain in embeds, or undefined if not
  * found or not homogenous.
  */
 function findDomain(embeds: Embed[]): number {
-  const set = new Set(embeds.map(e => matchDomain(e.url ?? '')));
+  const set = new Set(embeds.map((e: Embed) => {
+    for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
+      if (KNOWN_DOMAINS[i].regex.test(e.url ?? '')) {
+        return i;
+      }
+    }
+    return -1;
+  }));
   if (set.size > 1) {
     return -1;
   }
