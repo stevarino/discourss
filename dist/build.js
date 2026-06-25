@@ -70,31 +70,38 @@ async function printVersion() {
     console.log(`${json.version} (${version})`);
 }
 async function buildWeb() {
-    const base_dir = './doc/md/';
-    const output_dir = './doc/html/';
-    await fs.copyFile('README.md', path.join(base_dir, 'index.md'));
+    const baseDir = './doc/md/';
+    const outputDir = './doc/html/';
+    await fs.copyFile('README.md', path.join(baseDir, 'index.md'));
     // empty the output directory
-    for (let filename of await fs.readdir(output_dir)) {
-        await fs.rm(path.join(output_dir, filename), { recursive: true, force: true });
+    for (let filename of await fs.readdir(outputDir)) {
+        await fs.rm(path.join(outputDir, filename), { recursive: true, force: true });
     }
-    let template = await fs.readFile(path.join(base_dir, 'template.html'), { encoding: 'utf-8' });
+    let template = await fs.readFile(path.join(baseDir, 'template.html'), { encoding: 'utf-8' });
     const replacements = [
         [/__SCRIPT_URL__/g, URL],
     ];
     for (const [regex, value] of replacements) {
         template = template.replace(regex, value);
     }
-    const files = await fs.readdir(base_dir, { recursive: true });
+    const files = await fs.readdir(baseDir, { recursive: true });
     for (const filename of files) {
-        if (!filename.endsWith('.md')) {
+        const filePath = path.join(baseDir, filename);
+        const outputPath = path.join(outputDir, filename);
+        if ((await fs.stat(filePath)).isDirectory() || filename.endsWith('.html')) {
             continue;
         }
-        const markdown = await fs.readFile(path.join(base_dir, filename), { encoding: 'utf-8' });
-        const html = template.replace('__CONTENT__', await marked(markdown));
-        const output_filename = path.join(output_dir, filename).replace(/\.md$/, '.html');
-        await fs.mkdir(path.dirname(output_filename), { recursive: true });
-        await fs.writeFile(output_filename, html);
-        console.log(`Wrote ${output_filename}`);
+        await fs.mkdir(path.dirname(outputPath), { recursive: true });
+        if (filename.endsWith('.md')) {
+            const markdown = await fs.readFile(filePath, { encoding: 'utf-8' });
+            const html = template.replace('__CONTENT__', await marked(markdown));
+            await fs.writeFile(outputPath.replace(/\.md$/, '.html'), html);
+            console.log(`Built ${filename}`);
+        }
+        else {
+            fs.copyFile(filePath, outputPath);
+            console.log(`Copied ${filename}`);
+        }
     }
 }
 async function build() {
