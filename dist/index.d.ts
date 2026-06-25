@@ -8,6 +8,7 @@ declare global {
 }
 export declare function run(ctx?: Context): void;
 export declare function onOpen(): void;
+export declare function about(): void;
 export declare function setupTriggers(): void;
 export declare function disableTriggers(): void;
 export declare function sheetsSetup(): void;

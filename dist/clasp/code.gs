@@ -774,7 +774,7 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-421-260-044';
+const version = '1-782-422-112-561';
 
 /**
  * index.js - main entry point for code
@@ -854,7 +854,7 @@ function hasSheet(name) {
     return Boolean(SpreadsheetApp.getActive().getSheetByName(name));
 }
 function buildMenu() {
-    const menu = SpreadsheetApp.getUi().createAddonMenu();
+    const menu = SpreadsheetApp.getUi().createMenu('DiscouRSS');
     const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
     if (isReady)
         menu.addItem('Run', 'run');
@@ -865,7 +865,18 @@ function buildMenu() {
         menu.addItem('Enable', 'setupTriggers');
     }
     menu.addItem('Setup', 'sheetsSetup');
+    menu.addItem('About', 'about');
     menu.addToUi();
+}
+function about() {
+    SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput().append(`
+      <p>
+        <a href='https://disourss.stevarino.com/'>DiscouRSS Homepage</a>
+      </p>
+      <p>
+        Version: ${version}
+      </p>
+    `), 'About DiscouRSS');
 }
 function setupTriggers() {
     if (getTimeTrigger() === undefined) {

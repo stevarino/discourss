@@ -99,7 +99,7 @@ function hasSheet(name: string) {
 }
 
 function buildMenu(): void {
-  const menu = SpreadsheetApp.getUi().createAddonMenu();
+  const menu = SpreadsheetApp.getUi().createMenu('DiscouRSS');
   const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
   if (isReady) menu.addItem('Run', 'run');
   if (getTimeTrigger()) {
@@ -108,7 +108,21 @@ function buildMenu(): void {
     menu.addItem('Enable', 'setupTriggers')
   }
   menu.addItem('Setup', 'sheetsSetup');
+  menu.addItem('About', 'about')
   menu.addToUi()
+}
+
+export function about(): void {
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput().append(`
+      <p>
+        <a href='https://disourss.stevarino.com/'>DiscouRSS Homepage</a>
+      </p>
+      <p>
+        Version: ${version}
+      </p>
+    `), 'About DiscouRSS'
+  )
 }
 
 export function setupTriggers(): void {
