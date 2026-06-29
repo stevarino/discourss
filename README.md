@@ -22,11 +22,14 @@ NOTE: This is currently in private beta.
 
 ### Feed Tab
 
-**Feed** | String | URL of the RSS Feed
-**Discord** | String | User ID or Name to attribute to the update.
-**Time** | String | *(Internal)* Unix time of last update. Set to `0` to force a rescan.
-**GUID** | String | *(Internal)* Latest feed item. Set to 0 to push all feed items.
-**Status** | String | *(Informative)* Last run status for the given feed.
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| **Feed** | String | URL of the RSS Feed |
+| **Discord** | String | User ID or Name to attribute to the update. |
+| **Time** | String | *(Internal)* Unix time of last update. Set to `0` to force a rescan. |
+| **GUID** | String | *(Internal)* Latest feed item. Set to 0 to push all feed items. |
+| **Status** | String | *(Informative)* Last run status for the given feed. |
 
 ### Settings Tab
 

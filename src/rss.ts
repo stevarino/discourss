@@ -2,18 +2,18 @@
  * rss.js - functions related to processing RSS feeds.
  */
 
-import { Result, STATUS, Message, SafeFeed, XmlDocument } from './common.js';
+import { Result, STATUS, Message, Feed, XmlDocument } from './common.js';
 import { Context } from './context.js';
 import { buildEmbed } from './discord.js';
 
 /**
  * Process Feed
  */
-export function processFeed(feed: SafeFeed, ctx: Context): Result {
+export function processFeed(feed: Feed, ctx: Context): Result {
   // skip feed that has recently been scanned
   const diff = ctx.now - feed.time;
-  if (diff < ctx.feed_frequency.value * 1000) {
-    ctx.info(`${feed.feed} - hit frequency limit of ${ctx.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+  if (diff < feed.settings.feed_frequency.value * 1000) {
+    ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
     return { status: STATUS.SKIP, status_text: '' };
   }
 
@@ -29,7 +29,7 @@ export function processFeed(feed: SafeFeed, ctx: Context): Result {
 }
 
 
-function parseRssXml(content: string, feed: SafeFeed, ctx: Context): Result {
+function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
   const msg: Message = {
     username: feed.discord,
     embeds: [],
@@ -66,7 +66,7 @@ function parseRssXml(content: string, feed: SafeFeed, ctx: Context): Result {
       foundLast = true;
       break;
     }
-    msg.embeds.push(buildEmbed(ctx, item));
+    msg.embeds.push(buildEmbed(ctx, feed.settings, item));
   }
 
   // TODO: better separate this.

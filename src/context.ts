@@ -3,7 +3,9 @@
  */
 
 import {
-  CELL_VALUE, Spreadsheet, CONFIG, Fetcher, FetchRequest, FetchResponse
+  CELL_VALUE, Spreadsheet, CONFIG, Fetcher, FetchRequest, FetchResponse,
+  DEFAULT_APP_NAME, Metadata, Worksheet, SettingInterface, SettingsInterface,
+  SidebarSheetsData
 } from './common.js';
 
 export type LOG_RECORD = [number, LOG_LEVEL, string];
@@ -55,7 +57,8 @@ type SettingsValidator = [
   (value: CELL_VALUE) => boolean,
   string
 ];
-class Setting<T extends CELL_VALUE> {
+
+class Setting<T extends CELL_VALUE> implements SettingInterface {
   value: T;
   help: string;
   validators: SettingsValidator[]
@@ -78,11 +81,18 @@ class Setting<T extends CELL_VALUE> {
     return this.validate();
   }
 
-  validate(): string|undefined {
-    for (const val of this.validators) {
+  get(): T {
+    return this.value;
+  }
+
+  validate(value?: T): string|undefined {
+    if (value === undefined) {
+      value = this.value;
+    }
+    for (const [test, msg] of this.validators) {
       try {
-        if (!val[0](this.value)) {
-          return val[1];
+        if (!test(value)) {
+          return msg;
         }
       } catch (e) {
         return errorToString(e);
@@ -92,52 +102,153 @@ class Setting<T extends CELL_VALUE> {
   }
 }
 
-export class Context {
-  webhook: Setting<string> = new Setting(
-    '', 
-    'Discord channel webhook.',
-    [
-      [v => v !== '', 'Webhook must be set.'],
-      [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
-    ],
-  );
-  appname: Setting<string> = new Setting(
-    '',
-    'The Discord Bot name.'
-  );
-  avatar_url: Setting<string> = new Setting(
-    '', 
-    'URL to an image used for the Discord Bot.');
-  signature: Setting<string> = new Setting(
-    '%s Posted:',
-    'The signature used for the title. "%s" is replaced with the discord user.'
-  );
-  feed_pattern: Setting<string> = new Setting(
-    '^https://',
-    'Regular expression that individual feeds are validated against.'
-  );
-  feed_limit: Setting<number> = new Setting(
-    5, 'How many feeds to process per run.');
-  feed_frequency: Setting<number> = new Setting(
-    3600, 'How long a single feed will be scanned (in seconds).');
-  image_format: Setting<"image"|"thumbnail"|"none"> = new Setting(
-    'image',
-    'How to attach the image from the feed item (image|thumbnail|none)',
-    [
-      [(v) => ["image", "thumbnail", "none"].includes(v as string), 
-       'Value must be "image", "thumbnail", or "none".'],
-    ]
-  );
-  bundle: Setting<boolean> = new Setting(false,
-    "Whether or not to bundle the items as a single discord message.");
-
+/** Settings specific to a single sheet. */
+class SheetSettings implements SettingsInterface {
+  worksheet: Worksheet | undefined;
   feedHeaders: CELL_VALUE[] = [];
+  isSet = false;
+
+  webhook: Setting<string>;
+  appname: Setting<string>;
+  avatar_url: Setting<string>;
+  signature: Setting<string>;
+  feed_pattern: Setting<string>;
+  feed_limit: Setting<number>;
+  feed_frequency: Setting<number>;
+  image_format: Setting<"image"|"thumbnail"|"none">;
+  bundle: Setting<boolean>
+
+  feedCount: number;
+  feedPatternRe: RegExp;
+  settings: Record<string, Setting<CELL_VALUE>>;
+
+  constructor(worksheet?: Worksheet) {
+    this.worksheet = worksheet;
+    this.webhook = new Setting(
+      '', 
+      'Discord channel webhook.',
+      [
+        [v => v !== '', 'Webhook must be set.'],
+        [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
+      ],
+    );
+    this.appname = new Setting(
+      '',
+      'The Discord Bot name.'
+    );
+    this.avatar_url = new Setting(
+      '', 
+      'URL to an image used for the Discord Bot.');
+    this.signature = new Setting(
+      '%s Posted:',
+      'The signature used for the title. "%s" is replaced with the discord user.'
+    );
+    this.feed_pattern = new Setting(
+      '^https://',
+      'Regular expression that individual feeds are validated against.'
+    );
+    this.feed_limit = new Setting(
+      5, 'How many feeds to process per run.');
+    this.feed_frequency = new Setting(
+      3600, 'How long a single feed will be scanned (in seconds).');
+    this.image_format = new Setting(
+      'image',
+      'How to attach the image from the feed item (image|thumbnail|none)',
+      [
+        [(v) => ["image", "thumbnail", "none"].includes(v as string), 
+        'Value must be "image", "thumbnail", or "none".'],
+      ]
+    );
+    this.bundle = new Setting(
+      false, 'Whether to bundle all feed items as a single message to discord.'
+    )
+
+    this.feedPatternRe = new RegExp(this.feed_pattern.value);
+    this.settings = Object.fromEntries(
+      Object.entries(this).filter(([_, v]) => v instanceof Setting));
+    this.feedCount = this.feed_limit.value;
+    this.loadSettings();
+  }
+
+  loadSettings(): string | undefined {
+    const json = this.getMetadata()?.getValue();
+    if (!json) {
+      return;
+    }
+    console.log('Loading settings: ', json);
+    const settings: Record<string, CELL_VALUE> = JSON.parse(json);
+    const errors = this.validateSettings(settings);
+    if (errors.length) {
+      const msg = `Errors occurred during startup: ${errors.join('; ')}`;
+      console.error(msg);
+      return msg;
+    }
+    for (const [name, setting] of Object.entries(settings)) {
+      this.settings[name]?.set(setting);
+    }
+    this.isSet = true;
+    return;
+  }
+
+  getSettings(): [string, CELL_VALUE, string][] {
+    const settings: [string, CELL_VALUE, string][] = [];
+    for (const [key, val] of Object.entries(this)) {
+      if (val instanceof Setting) {
+        settings.push([key, val.value, val.help]);
+      }
+    }
+    return settings;
+  }
+
+  validateSettings(record: Record<string, CELL_VALUE>): string[] {
+    const errors: string[] = [];
+    // validate
+    for (const [name, setting] of Object.entries(this)) {
+      if (!(setting instanceof Setting)) {
+        continue;
+      }
+      // testing each value regardless of if its trying to be set.
+      const error = setting.validate(record[name]);
+      if (error) {
+        errors.push(`${name}: ${error}`);
+      }
+    }
+    return errors;
+  }
+
+  setSettings(settings: [string, CELL_VALUE][]): string[] {
+    const record = Object.fromEntries(settings);
+    const errors = this.validateSettings(record);    
+    if (errors.length) {
+      return errors;
+    }
+    const json = JSON.stringify(record);
+    if (!this.getMetadata()?.setValue(json)) {
+      this.worksheet?.addDeveloperMetadata(DEFAULT_APP_NAME, json);
+    }
+    // set new settings (needed for tests?)
+    this.loadSettings();
+    return errors;
+  }
+
+  deleteSettings(): void {
+    this.getMetadata()?.remove();
+  }
+
+  getMetadata(): Metadata | undefined {
+    return this.worksheet
+        ?.createDeveloperMetadataFinder()
+        ?.withKey(DEFAULT_APP_NAME).find()?.[0];
+  }
+}
+
+export class Context {
+  sheetSettings: Record<string, SheetSettings> = {};
   logs: LOG_RECORD[] = [];
   debug = false;
   fetcher: Fetcher;
 
   now: number;
-  feedPatternRe: RegExp;
   spreadsheet: Spreadsheet;
 
   defaults: [string, CELL_VALUE, string][] = [];
@@ -145,65 +256,60 @@ export class Context {
   constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]) {
     this.fetcher = new Fetcher();
     this.now = new Date().getTime();
-    this.feedPatternRe = new RegExp('^https://');
     this.spreadsheet = spreadsheet;
     if (logs !== undefined) {
       this.logs = logs;
     }
-    this.defaults = this.getDefaults();
+    this.defaults = new SheetSettings().getSettings();
+    this.loadSettings();
   }
 
-  getDefaults(): [string, CELL_VALUE, string][] {
-    if (this.defaults.length) {
-      return this.defaults;
+  loadSettings(): void {
+    for (const sheet of this.spreadsheet.getSheets()) {
+      this.sheetSettings[sheet.getName()] = new SheetSettings(sheet);
     }
-    const defaults: [string, CELL_VALUE, string][] = [];
-    for (const [key, val] of Object.entries(this)) {
-      if (val instanceof Setting) {
-        defaults.push([key, val.value, val.help]);
-      }
-    }
-    return defaults;
   }
 
-  setSettings(settings: [string, CELL_VALUE][]): string[] {
-    const errors: string[] = [];
-    for (const [key, val] of settings) {
-      if (typeof key !== 'string' || !this.hasOwnProperty(key)) {
-        continue;
-      }
-      const setting = (this as any)[key];
-      if (!(setting instanceof Setting)) {
-        continue;
-      }
-      const error = setting.set(val);
-      if (error !== undefined) {
-        errors.push(`${key}: ${error}`);
-        continue;
-      }
-
-      if (key === 'feed_pattern') {
-        this.feedPatternRe = new RegExp(val as string);
+  getSettings(): Record<string, SidebarSheetsData> {
+    const settings: Record<string, SidebarSheetsData> = {}
+    for (const [name, value] of Object.entries(this.sheetSettings)) {
+      settings[name] = {
+        name: name,
+        isSet: value.isSet,
+        settings: value.getSettings(),
       }
     }
-    if (!errors.length) {
-      errors.push(...this.validate())
-    }
-    return errors;
+    return settings;
   }
 
-  validate(): string[] {
-    const errors = [];
-    for (const [key, val] of Object.entries(this)) {
-      if (val instanceof Setting) {
-        const error = val.validate();
-        if (error) {
-          errors.push(`${key}: ${error}`);
-        }
-      }
-    }
-    return errors;
+  setSettings(sheet: string, values: [string, CELL_VALUE][]): string[] {
+    return this.sheetSettings[sheet]?.setSettings(values) ?? [`Unrecognized sheet: "${sheet}"`]
   }
+
+  deleteSettings(sheet: string): void {
+    this.sheetSettings[sheet]?.deleteSettings();
+  }
+
+  reset(spreadsheet?: Spreadsheet): void {
+    if (spreadsheet) {
+      this.spreadsheet = spreadsheet;
+    }
+    this.sheetSettings = {};
+    this.loadSettings();
+  }
+
+  // validate(): string[] {
+  //   const errors = [];
+  //   for (const [key, val] of Object.entries(this)) {
+  //     if (val instanceof Setting) {
+  //       const error = val.validate();
+  //       if (error) {
+  //         errors.push(`${key}: ${error}`);
+  //       }
+  //     }
+  //   }
+  //   return errors;
+  // }
   
   fetch(url: string, params: FetchRequest): FetchResponse {
     return this.fetcher.fetch(url, params)

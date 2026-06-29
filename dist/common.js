@@ -2,6 +2,7 @@
  * common.js - common interfaces, types, and constants.
  */
 /** If test is truthy, return test, otherwise return other (or undefined) */
+export const DEFAULT_APP_NAME = 'DiscouRSS';
 export function truthy(test, other) {
     if (test) {
         return test;

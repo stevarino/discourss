@@ -4,11 +4,18 @@ import * as cheerio from 'cheerio';
 
 import {
   Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement,
-  FetchRequest, FetchResponse, Fetcher
+  FetchRequest, FetchResponse, Fetcher, MetadataContainer
 } from './common.js';
+import { Context } from './context.js';
 
-// import { CONFIG } from './common.js';
-// CONFIG.LOG_TO_STDERR = true;
+export function buildContext(sheetName: string): Context {
+  const ss = new MockSpreadsheet();
+  ss.insertSheet(sheetName)
+  const ctx = new Context(ss);
+  ctx.fetcher = new MockFetcher();
+  ctx.sheetSettings[sheetName].isSet = true;
+  return ctx;
+}
 
 export function createTestContext(sheet: Spreadsheet): BaseContext {
   return {
@@ -197,12 +204,30 @@ export class MockRange {
   setWrap(): MockRange { return this; }
 }
 
-class MockWorksheet implements Worksheet {
+abstract class MockMetadataContainer implements MetadataContainer {
+  public metadata: Record<string, string> = {};
+
+  addDeveloperMetadata(key: string, value: string): MockMetadataContainer {
+    this.metadata[key] = value;
+    return this;
+  }
+
+  createDeveloperMetadataFinder(): MockMetadataFinder {
+    return new MockMetadataFinder(this);
+  }
+}
+
+class MockWorksheet extends MockMetadataContainer implements Worksheet  {
   public name: string;
   private cells = new Map<string, CELL_VALUE>();
 
   constructor(name: string) {
+    super();
     this.name = name;
+  }
+
+  getName(): string {
+    return this.name;
   }
 
   getCell(r: number, c: number): CELL_VALUE {
@@ -220,7 +245,7 @@ class MockWorksheet implements Worksheet {
   getLastRow(): number {
     let maxRow = -1;
     for (const key of this.cells.keys()) {
-      const r = parseInt(key.split(',')[0], 10);
+      const r = parseInt(key.split(',')[0]);
       if (r > maxRow) {
         maxRow = r;
       }
@@ -229,8 +254,9 @@ class MockWorksheet implements Worksheet {
   }
 
   getLastColumn(): number {
-    return Math.max(...Array.from(this.cells.keys()).map(
-      k => parseInt(k.split(',')[1], 10))) + 1;
+    const maxCol = Math.max(-1, ...Array.from(this.cells.keys()).map(
+      k => parseInt(k.split(',')[1]))) + 1;
+    return maxCol;    
   }
 
   getDataRange(): MockRange {
@@ -259,9 +285,8 @@ class MockWorksheet implements Worksheet {
   autoResizeRows(): void {}
 }
 
-export class MockSpreadsheet implements Spreadsheet {
+export class MockSpreadsheet extends MockMetadataContainer implements Spreadsheet {
   public sheets: Map<string, MockWorksheet> = new Map();
-
   getSheetByName(name: string): MockWorksheet | null {
     return this.sheets.get(name) ?? null;
   }
@@ -270,6 +295,52 @@ export class MockSpreadsheet implements Spreadsheet {
     const ws = new MockWorksheet(name);
     this.sheets.set(name, ws);
     return ws;
+  }
+
+  getSheets(): Worksheet[] {
+    return Array.from(this.sheets.values());
+  }
+}
+
+export class MockMetadataFinder {
+  key: string = ''
+  constructor(public source: MockMetadataContainer) {}
+  
+  withKey(key: string): MockMetadataFinder {
+    this.key = key;
+    return this;
+  }
+
+  find(): MockMetadata[]  {
+    if (this.source.metadata[this.key]) {
+      return [new MockMetadata(this)];
+    }
+    return [];
+  }
+}
+
+class MockMetadata {
+  constructor(public finder: MockMetadataFinder) {}
+
+  getValue(): string | null {
+    return this.finder.source.metadata[this.finder.key] ?? null;
+  }
+
+  setValue(val: string): MockMetadata {
+    this.finder.source.metadata[this.finder.key] = val;
+    return this;
+  }
+
+  remove(): void {
+    delete this.finder.source.metadata[this.finder.key];
+  }
+
+  getKey(): string {
+    return this.finder.key;
+  }
+
+  getId(): number {
+    return 0;
   }
 }
 

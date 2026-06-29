@@ -1,6 +1,8 @@
 /** mocks.ts - Mocks used in testing. */
 import * as cheerio from 'cheerio';
-import { Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement, FetchRequest, FetchResponse, Fetcher } from './common.js';
+import { Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement, FetchRequest, FetchResponse, Fetcher, MetadataContainer } from './common.js';
+import { Context } from './context.js';
+export declare function buildContext(sheetName: string): Context;
 export declare function createTestContext(sheet: Spreadsheet): BaseContext;
 export declare class MockResponse implements FetchResponse {
     private responseCode;
@@ -59,10 +61,16 @@ export declare class MockRange {
     clear(): MockRange;
     setWrap(): MockRange;
 }
-declare class MockWorksheet implements Worksheet {
+declare abstract class MockMetadataContainer implements MetadataContainer {
+    metadata: Record<string, string>;
+    addDeveloperMetadata(key: string, value: string): MockMetadataContainer;
+    createDeveloperMetadataFinder(): MockMetadataFinder;
+}
+declare class MockWorksheet extends MockMetadataContainer implements Worksheet {
     name: string;
     private cells;
     constructor(name: string);
+    getName(): string;
     getCell(r: number, c: number): CELL_VALUE;
     setCell(r: number, c: number, value: CELL_VALUE): void;
     deleteCell(r: number, c: number): void;
@@ -75,9 +83,26 @@ declare class MockWorksheet implements Worksheet {
     getColumnWidth(): number;
     autoResizeRows(): void;
 }
-export declare class MockSpreadsheet implements Spreadsheet {
+export declare class MockSpreadsheet extends MockMetadataContainer implements Spreadsheet {
     sheets: Map<string, MockWorksheet>;
     getSheetByName(name: string): MockWorksheet | null;
     insertSheet(name: string): MockWorksheet;
+    getSheets(): Worksheet[];
+}
+export declare class MockMetadataFinder {
+    source: MockMetadataContainer;
+    key: string;
+    constructor(source: MockMetadataContainer);
+    withKey(key: string): MockMetadataFinder;
+    find(): MockMetadata[];
+}
+declare class MockMetadata {
+    finder: MockMetadataFinder;
+    constructor(finder: MockMetadataFinder);
+    getValue(): string | null;
+    setValue(val: string): MockMetadata;
+    remove(): void;
+    getKey(): string;
+    getId(): number;
 }
 export {};

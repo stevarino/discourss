@@ -1,8 +1,15 @@
 /** mocks.ts - Mocks used in testing. */
 import * as cheerio from 'cheerio';
 import { Fetcher } from './common.js';
-// import { CONFIG } from './common.js';
-// CONFIG.LOG_TO_STDERR = true;
+import { Context } from './context.js';
+export function buildContext(sheetName) {
+    const ss = new MockSpreadsheet();
+    ss.insertSheet(sheetName);
+    const ctx = new Context(ss);
+    ctx.fetcher = new MockFetcher();
+    ctx.sheetSettings[sheetName].isSet = true;
+    return ctx;
+}
 export function createTestContext(sheet) {
     return {
         spreadsheet: sheet,
@@ -154,10 +161,26 @@ export class MockRange {
     }
     setWrap() { return this; }
 }
-class MockWorksheet {
+class MockMetadataContainer {
+    constructor() {
+        this.metadata = {};
+    }
+    addDeveloperMetadata(key, value) {
+        this.metadata[key] = value;
+        return this;
+    }
+    createDeveloperMetadataFinder() {
+        return new MockMetadataFinder(this);
+    }
+}
+class MockWorksheet extends MockMetadataContainer {
     constructor(name) {
+        super();
         this.cells = new Map();
         this.name = name;
+    }
+    getName() {
+        return this.name;
     }
     getCell(r, c) {
         var _a;
@@ -172,7 +195,7 @@ class MockWorksheet {
     getLastRow() {
         let maxRow = -1;
         for (const key of this.cells.keys()) {
-            const r = parseInt(key.split(',')[0], 10);
+            const r = parseInt(key.split(',')[0]);
             if (r > maxRow) {
                 maxRow = r;
             }
@@ -180,7 +203,8 @@ class MockWorksheet {
         return maxRow + 1;
     }
     getLastColumn() {
-        return Math.max(...Array.from(this.cells.keys()).map(k => parseInt(k.split(',')[1], 10))) + 1;
+        const maxCol = Math.max(-1, ...Array.from(this.cells.keys()).map(k => parseInt(k.split(',')[1]))) + 1;
+        return maxCol;
     }
     getDataRange() {
         if (this.cells.size === 0) {
@@ -209,8 +233,9 @@ class MockWorksheet {
     getColumnWidth() { return 100; }
     autoResizeRows() { }
 }
-export class MockSpreadsheet {
+export class MockSpreadsheet extends MockMetadataContainer {
     constructor() {
+        super(...arguments);
         this.sheets = new Map();
     }
     getSheetByName(name) {
@@ -221,6 +246,47 @@ export class MockSpreadsheet {
         const ws = new MockWorksheet(name);
         this.sheets.set(name, ws);
         return ws;
+    }
+    getSheets() {
+        return Array.from(this.sheets.values());
+    }
+}
+export class MockMetadataFinder {
+    constructor(source) {
+        this.source = source;
+        this.key = '';
+    }
+    withKey(key) {
+        this.key = key;
+        return this;
+    }
+    find() {
+        if (this.source.metadata[this.key]) {
+            return [new MockMetadata(this)];
+        }
+        return [];
+    }
+}
+class MockMetadata {
+    constructor(finder) {
+        this.finder = finder;
+    }
+    getValue() {
+        var _a;
+        return (_a = this.finder.source.metadata[this.finder.key]) !== null && _a !== void 0 ? _a : null;
+    }
+    setValue(val) {
+        this.finder.source.metadata[this.finder.key] = val;
+        return this;
+    }
+    remove() {
+        delete this.finder.source.metadata[this.finder.key];
+    }
+    getKey() {
+        return this.finder.key;
+    }
+    getId() {
+        return 0;
     }
 }
 // Global mocks setup

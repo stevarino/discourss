@@ -9,8 +9,8 @@ import { buildEmbed } from './discord.js';
 export function processFeed(feed, ctx) {
     // skip feed that has recently been scanned
     const diff = ctx.now - feed.time;
-    if (diff < ctx.feed_frequency.value * 1000) {
-        ctx.info(`${feed.feed} - hit frequency limit of ${ctx.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+    if (diff < feed.settings.feed_frequency.value * 1000) {
+        ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
         return { status: STATUS.SKIP, status_text: '' };
     }
     ctx.info(`${feed.feed} - fetching`);
@@ -59,7 +59,7 @@ function parseRssXml(content, feed, ctx) {
             foundLast = true;
             break;
         }
-        msg.embeds.push(buildEmbed(ctx, item));
+        msg.embeds.push(buildEmbed(ctx, feed.settings, item));
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not

@@ -2,23 +2,25 @@
  * common.js - common interfaces, types, and constants.
  */
 /** If test is truthy, return test, otherwise return other (or undefined) */
+export declare const DEFAULT_APP_NAME = "DiscouRSS";
 export declare function truthy<T>(test: T, other?: T): T | undefined;
 export declare const CONFIG: {
     LOG_TO_STDERR: boolean;
 };
-export interface Feed {
+export interface PartialFeed {
     index: number;
+    settings: SettingsInterface;
     feed?: string;
     time?: number | string;
     discord?: string | number;
     guid?: string;
     status?: string;
 }
-export type SafeFeed = Feed & {
+export type Feed = PartialFeed & {
     time: number;
     feed: string;
 };
-export type FeedLookup = Record<keyof Feed, string | number | undefined>;
+export type FeedLookup = Record<keyof PartialFeed, string | number | undefined | SettingsInterface>;
 export interface Embed {
     title?: string;
     url?: string;
@@ -75,11 +77,28 @@ export declare const EXPECTED_HEADERS: string[];
 export declare const HEADER_LOOKUP: Record<string, SHEET_HEADERS_FIELDS>;
 /** Sheets Interfaces */
 export type CELL_VALUE = string | number | boolean;
-export interface Spreadsheet {
+export interface Metadata {
+    getValue(): string | null;
+    setValue(val: string): Metadata;
+    getKey(): string;
+    getId(): number;
+    remove(): void;
+}
+export interface MetadataFinder {
+    withKey(key: string): MetadataFinder;
+    find(): Metadata[];
+}
+export interface MetadataContainer {
+    addDeveloperMetadata(key: string, value: string): MetadataContainer;
+    createDeveloperMetadataFinder(): MetadataFinder;
+}
+export type Spreadsheet = {
     getSheetByName(name: string): Worksheet | null;
     insertSheet(name: string): Worksheet;
-}
-export interface Worksheet {
+    getSheets(): Worksheet[];
+} & MetadataContainer;
+export type Worksheet = {
+    getName(): string;
     getLastRow(): number;
     getLastColumn(): number;
     getDataRange(): Range;
@@ -88,7 +107,7 @@ export interface Worksheet {
     setColumnWidth(column: number, size: number): void;
     getColumnWidth(column: number): number;
     autoResizeRows(startRow: number, numRows: number): void;
-}
+} & MetadataContainer;
 export interface Range {
     getValues(): CELL_VALUE[][];
     setValues(values: CELL_VALUE[][]): Range;
@@ -131,5 +150,36 @@ export interface FetchRequest {
 export interface FetchResponse {
     getResponseCode(): number;
     getContentText(): string;
+}
+export interface SidebarSheetsData {
+    name: string;
+    isSet: boolean;
+    settings: [string, CELL_VALUE, string][];
+}
+export interface SidebarData {
+    version: string;
+    active: string;
+    timer: boolean;
+    sheets: Record<string, SidebarSheetsData>;
+}
+export interface SettingInterface<T = CELL_VALUE> {
+    value: T;
+    get(): T;
+    set(value: T): void;
+}
+export interface SettingsInterface {
+    isSet: boolean;
+    worksheet: Worksheet | undefined;
+    feedHeaders: CELL_VALUE[];
+    webhook: SettingInterface<string>;
+    appname: SettingInterface<string>;
+    avatar_url: SettingInterface<string>;
+    signature: SettingInterface<string>;
+    feed_pattern: SettingInterface<string>;
+    feed_limit: SettingInterface<number>;
+    feed_frequency: SettingInterface<number>;
+    image_format: SettingInterface<"image" | "thumbnail" | "none">;
+    bundle: SettingInterface<boolean>;
+    feedCount: number;
 }
 export {};

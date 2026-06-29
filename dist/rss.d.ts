@@ -1,9 +1,9 @@
 /**
  * rss.js - functions related to processing RSS feeds.
  */
-import { Result, SafeFeed } from './common.js';
+import { Result, Feed } from './common.js';
 import { Context } from './context.js';
 /**
  * Process Feed
  */
-export declare function processFeed(feed: SafeFeed, ctx: Context): Result;
+export declare function processFeed(feed: Feed, ctx: Context): Result;

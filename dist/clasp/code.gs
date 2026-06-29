@@ -30,6 +30,7 @@
  * common.js - common interfaces, types, and constants.
  */
 /** If test is truthy, return test, otherwise return other (or undefined) */
+const DEFAULT_APP_NAME = 'DiscouRSS';
 function truthy(test, other) {
     if (test) {
         return test;
@@ -129,11 +130,17 @@ class Setting {
         this.value = value;
         return this.validate();
     }
-    validate() {
-        for (const val of this.validators) {
+    get() {
+        return this.value;
+    }
+    validate(value) {
+        if (value === undefined) {
+            value = this.value;
+        }
+        for (const [test, msg] of this.validators) {
             try {
-                if (!val[0](this.value)) {
-                    return val[1];
+                if (!test(value)) {
+                    return msg;
                 }
             }
             catch (e) {
@@ -143,8 +150,12 @@ class Setting {
         return undefined;
     }
 }
-class Context {
-    constructor(spreadsheet, logs) {
+/** Settings specific to a single sheet. */
+class SheetSettings {
+    constructor(worksheet) {
+        this.feedHeaders = [];
+        this.isSet = false;
+        this.worksheet = worksheet;
         this.webhook = new Setting('', 'Discord channel webhook.', [
             [v => v !== '', 'Webhook must be set.'],
             [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
@@ -159,68 +170,138 @@ class Context {
             [(v) => ["image", "thumbnail", "none"].includes(v),
                 'Value must be "image", "thumbnail", or "none".'],
         ]);
-        this.bundle = new Setting(false, "Whether or not to bundle the items as a single discord message.");
-        this.feedHeaders = [];
+        this.bundle = new Setting(false, 'Whether to bundle all feed items as a single message to discord.');
+        this.feedPatternRe = new RegExp(this.feed_pattern.value);
+        this.settings = Object.fromEntries(Object.entries(this).filter(([_, v]) => v instanceof Setting));
+        this.feedCount = this.feed_limit.value;
+        this.loadSettings();
+    }
+    loadSettings() {
+        var _a, _b;
+        const json = (_a = this.getMetadata()) === null || _a === void 0 ? void 0 : _a.getValue();
+        if (!json) {
+            return;
+        }
+        console.log('Loading settings: ', json);
+        const settings = JSON.parse(json);
+        const errors = this.validateSettings(settings);
+        if (errors.length) {
+            const msg = `Errors occurred during startup: ${errors.join('; ')}`;
+            console.error(msg);
+            return msg;
+        }
+        for (const [name, setting] of Object.entries(settings)) {
+            (_b = this.settings[name]) === null || _b === void 0 ? void 0 : _b.set(setting);
+        }
+        this.isSet = true;
+        return;
+    }
+    getSettings() {
+        const settings = [];
+        for (const [key, val] of Object.entries(this)) {
+            if (val instanceof Setting) {
+                settings.push([key, val.value, val.help]);
+            }
+        }
+        return settings;
+    }
+    validateSettings(record) {
+        const errors = [];
+        // validate
+        for (const [name, setting] of Object.entries(this)) {
+            if (!(setting instanceof Setting)) {
+                continue;
+            }
+            // testing each value regardless of if its trying to be set.
+            const error = setting.validate(record[name]);
+            if (error) {
+                errors.push(`${name}: ${error}`);
+            }
+        }
+        return errors;
+    }
+    setSettings(settings) {
+        var _a, _b;
+        const record = Object.fromEntries(settings);
+        const errors = this.validateSettings(record);
+        if (errors.length) {
+            return errors;
+        }
+        const json = JSON.stringify(record);
+        if (!((_a = this.getMetadata()) === null || _a === void 0 ? void 0 : _a.setValue(json))) {
+            (_b = this.worksheet) === null || _b === void 0 ? void 0 : _b.addDeveloperMetadata(DEFAULT_APP_NAME, json);
+        }
+        // set new settings (needed for tests?)
+        this.loadSettings();
+        return errors;
+    }
+    deleteSettings() {
+        var _a;
+        (_a = this.getMetadata()) === null || _a === void 0 ? void 0 : _a.remove();
+    }
+    getMetadata() {
+        var _a, _b, _c;
+        return (_c = (_b = (_a = this.worksheet) === null || _a === void 0 ? void 0 : _a.createDeveloperMetadataFinder()) === null || _b === void 0 ? void 0 : _b.withKey(DEFAULT_APP_NAME).find()) === null || _c === void 0 ? void 0 : _c[0];
+    }
+}
+class Context {
+    constructor(spreadsheet, logs) {
+        this.sheetSettings = {};
         this.logs = [];
         this.debug = false;
         this.defaults = [];
         this.fetcher = new Fetcher();
         this.now = new Date().getTime();
-        this.feedPatternRe = new RegExp('^https://');
         this.spreadsheet = spreadsheet;
         if (logs !== undefined) {
             this.logs = logs;
         }
-        this.defaults = this.getDefaults();
+        this.defaults = new SheetSettings().getSettings();
+        this.loadSettings();
     }
-    getDefaults() {
-        if (this.defaults.length) {
-            return this.defaults;
+    loadSettings() {
+        for (const sheet of this.spreadsheet.getSheets()) {
+            this.sheetSettings[sheet.getName()] = new SheetSettings(sheet);
         }
-        const defaults = [];
-        for (const [key, val] of Object.entries(this)) {
-            if (val instanceof Setting) {
-                defaults.push([key, val.value, val.help]);
-            }
-        }
-        return defaults;
     }
-    setSettings(settings) {
-        const errors = [];
-        for (const [key, val] of settings) {
-            if (typeof key !== 'string' || !this.hasOwnProperty(key)) {
-                continue;
-            }
-            const setting = this[key];
-            if (!(setting instanceof Setting)) {
-                continue;
-            }
-            const error = setting.set(val);
-            if (error !== undefined) {
-                errors.push(`${key}: ${error}`);
-                continue;
-            }
-            if (key === 'feed_pattern') {
-                this.feedPatternRe = new RegExp(val);
-            }
+    getSettings() {
+        const settings = {};
+        for (const [name, value] of Object.entries(this.sheetSettings)) {
+            settings[name] = {
+                name: name,
+                isSet: value.isSet,
+                settings: value.getSettings(),
+            };
         }
-        if (!errors.length) {
-            errors.push(...this.validate());
-        }
-        return errors;
+        return settings;
     }
-    validate() {
-        const errors = [];
-        for (const [key, val] of Object.entries(this)) {
-            if (val instanceof Setting) {
-                const error = val.validate();
-                if (error) {
-                    errors.push(`${key}: ${error}`);
-                }
-            }
-        }
-        return errors;
+    setSettings(sheet, values) {
+        var _a, _b;
+        return (_b = (_a = this.sheetSettings[sheet]) === null || _a === void 0 ? void 0 : _a.setSettings(values)) !== null && _b !== void 0 ? _b : [`Unrecognized sheet: "${sheet}"`];
     }
+    deleteSettings(sheet) {
+        var _a;
+        (_a = this.sheetSettings[sheet]) === null || _a === void 0 ? void 0 : _a.deleteSettings();
+    }
+    reset(spreadsheet) {
+        if (spreadsheet) {
+            this.spreadsheet = spreadsheet;
+        }
+        this.sheetSettings = {};
+        this.loadSettings();
+    }
+    // validate(): string[] {
+    //   const errors = [];
+    //   for (const [key, val] of Object.entries(this)) {
+    //     if (val instanceof Setting) {
+    //       const error = val.validate();
+    //       if (error) {
+    //         errors.push(`${key}: ${error}`);
+    //       }
+    //     }
+    //   }
+    //   return errors;
+    // }
     fetch(url, params) {
         return this.fetcher.fetch(url, params);
     }
@@ -241,29 +322,15 @@ class Context {
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
-const SETTINGS_TAB = 'Settings';
-const FEEDS_TAB = 'Feeds';
 const LOGS_TAB = 'Logs';
-const TIMER_TRIGGER = 'timerTrigger';
 function newTextStyle() {
     return SpreadsheetApp.newTextStyle();
 }
-function setupFeedsTab(sheet) {
+function setupFeedsTab(worksheet) {
     // Creates the Feeds tab and adds any missing columns.
-    let tab = sheet.getSheetByName(FEEDS_TAB);
-    let values = [[]];
-    let lastCol = 0;
-    let range;
-    if (tab === null) {
-        tab = sheet.insertSheet(FEEDS_TAB);
-        range = tab.getDataRange();
-        values = [[]];
-    }
-    else {
-        lastCol = tab.getLastColumn();
-        range = tab.getDataRange();
-        values = range.getValues();
-    }
+    let lastCol = worksheet.getLastColumn();
+    let range = worksheet.getDataRange();
+    let values = range.getValues();
     // row A is identifier, row B is help text
     while (values.length < 2) {
         values.push([]);
@@ -289,11 +356,17 @@ function setupFeedsTab(sheet) {
         }
     }
     if (newData[0].length > 0) {
-        const range = tab.getRange(1, lastCol + 1, 2, newData[0].length);
-        range.setValues(newData).setBackground('#4285f4').setTextStyle(newTextStyle().setFontSize(16).setBold(true)
-            .setForegroundColor('#ffffff').build());
-        tab.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
-        tab.autoResizeColumns(lastCol + 1, newData[0].length);
+        worksheet
+            .getRange(1, lastCol + 1, 2, newData[0].length)
+            .setValues(newData)
+            .setBackground('#4285f4')
+            .setTextStyle(newTextStyle()
+            .setFontSize(16)
+            .setBold(true)
+            .setForegroundColor('#ffffff')
+            .build());
+        worksheet.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
+        worksheet.autoResizeColumns(lastCol + 1, newData[0].length);
         const columnWidthMults = [
             [SHEET_HEADERS.feed.label, 4],
             [SHEET_HEADERS.discord.label, 2],
@@ -302,80 +375,52 @@ function setupFeedsTab(sheet) {
         for (const [label, mult] of columnWidthMults) {
             const feedIndex = newData[0].indexOf(label) + 1;
             if (feedIndex) {
-                const width = tab.getColumnWidth(feedIndex + lastCol);
-                tab.setColumnWidth(feedIndex + lastCol, width * mult);
+                const width = worksheet.getColumnWidth(feedIndex + lastCol);
+                worksheet.setColumnWidth(feedIndex + lastCol, width * mult);
             }
         }
-    }
-}
-function readSettingsTab(sheet) {
-    const settingsTab = sheet.getSheetByName(SETTINGS_TAB);
-    if (settingsTab === null) {
-        throw new Error('expected a sheet called "settings" - found none.');
-    }
-    return [settingsTab, settingsTab.getDataRange().getValues()];
-}
-function setupSettingsTab(sheet, defaults) {
-    let tab = sheet.getSheetByName(SETTINGS_TAB);
-    let values = [[]];
-    let lastRow = 0;
-    if (tab === null) {
-        tab = sheet.insertSheet(SETTINGS_TAB);
-    }
-    else {
-        values = tab.getDataRange().getValues();
-        lastRow = tab.getLastRow();
-    }
-    const exists = new Set(values.map(row => row[0]).filter(v => v));
-    const toAdd = [];
-    for (const [key, val, help] of defaults) {
-        if (!exists.has(key)) {
-            toAdd.push([key, val, help]);
-        }
-    }
-    if (toAdd.length) {
-        const range = tab.getRange(lastRow + 1, 1, toAdd.length, toAdd[0].length);
-        range.setValues(toAdd);
     }
 }
 /**
  * Given an array of logs, inserts the logs into the `logs` tab.
  */
 function writeLogs(sheet, logs) {
+    const header = ['epoch', 'DateTime (UTC)', 'Level', 'Message'];
     try {
-        const rows = [['epoch', 'DateTime (UTC)', 'Level', 'Message']];
-        for (let i = logs.length - 1; i >= 0; i--) {
-            const log = logs[i];
-            let isoTime = new Date(log[0]).toISOString().replace('T', ' ').split('.')[0];
-            rows.push([log[0], isoTime, LOG_LEVEL[log[1]], log[2]]);
-        }
+        // let rows: CELL_VALUE[][] = [['epoch', 'DateTime (UTC)', 'Level', 'Message']];
         let tab = sheet.getSheetByName(LOGS_TAB);
-        const colCount = rows[0].length;
+        const colCount = header.length;
         let rowCount = 0;
         if (tab === null) {
             tab = sheet.insertSheet(LOGS_TAB);
-            tab.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+            tab.getRange(1, 1, 1, colCount).setValues([header]);
             tab.autoResizeColumns(1, colCount);
             // expand the last columnn
             tab.setColumnWidth(colCount, tab.getColumnWidth(colCount) * 8);
         }
-        else {
-            const range = tab.getDataRange();
-            const oldRows = range.getValues();
-            rowCount = oldRows.length + 1;
-            range.clear();
-            let cutoffTime = new Date().getTime() - (7 * 24 * 3600 * 1000);
-            for (let i = 0; i < oldRows.length; i++) {
-                const time = oldRows[i][0];
-                if (typeof time === 'number' && cutoffTime < time) {
-                    rows.push(oldRows[i]);
-                }
+        const newRows = [header];
+        // reverse and format logs
+        for (let i = logs.length - 1; i >= 0; i--) {
+            const log = logs[i];
+            let isoTime = new Date(log[0]).toISOString().replace('T', ' ').split('.')[0];
+            newRows.push([log[0], isoTime, LOG_LEVEL[log[1]], log[2]]);
+        }
+        const oldRange = tab.getDataRange();
+        const oldRows = oldRange.getValues();
+        rowCount = oldRows.length + 1;
+        oldRange.clear();
+        let cutoffTime = new Date().getTime() - (7 * 24 * 3600 * 1000);
+        for (let i = 1; i < oldRows.length; i++) {
+            const time = oldRows[i][0];
+            if (typeof time === 'number' && cutoffTime < time) {
+                newRows.push(oldRows[i]);
             }
         }
-        const range = tab.getRange(1, 1, rows.length, rows[0].length);
-        range.setValues(rows);
-        tab.autoResizeRows(1, Math.max(rows.length, rowCount));
-        tab.getRange(1, colCount, rows.length, 1).setWrap(true).setVerticalAlignment('top');
+        // write values;
+        tab.getRange(1, 1, newRows.length, newRows[0].length).setValues(newRows);
+        tab.autoResizeRows(1, Math.max(newRows.length, rowCount));
+        // wrap text logs
+        tab.getRange(1, colCount, newRows.length, 1).setWrap(true).setVerticalAlignment('top');
     }
     catch (e) {
         console.error(errorToString(e));
@@ -385,53 +430,55 @@ function getFeedColumn(feedHeaders, header) {
     return feedHeaders.indexOf(header);
 }
 function readFeedsTab(ctx) {
-    const tab = ctx.spreadsheet.getSheetByName(FEEDS_TAB);
     const feeds = [];
-    if (!tab) {
-        throw new Error(`expected a sheet called "${FEEDS_TAB}" - found none.`);
-    }
-    const values = tab.getDataRange().getValues();
-    for (let i = 0; i < values.length; i++) {
-        // setup columns for dict-like lookup.
-        if (values[i].includes(SHEET_HEADERS.feed.label)) {
-            ctx.feedHeaders.length = 0;
-            ctx.feedHeaders.push(...values[i]);
-            const missing = [];
-            for (const v of EXPECTED_HEADERS) {
-                if (!ctx.feedHeaders.includes(v)) {
-                    missing.push(v);
+    for (const settings of Object.values(ctx.sheetSettings)) {
+        if (!settings.isSet || !settings.worksheet)
+            continue;
+        const values = settings.worksheet.getDataRange().getValues();
+        for (let i = 0; i < values.length; i++) {
+            // setup columns for dict-like lookup.
+            if (values[i].includes(SHEET_HEADERS.feed.label)) {
+                settings.feedHeaders.length = 0;
+                settings.feedHeaders.push(...values[i]);
+                const missing = [];
+                for (const v of EXPECTED_HEADERS) {
+                    if (!settings.feedHeaders.includes(v)) {
+                        missing.push(v);
+                    }
+                }
+                if (missing.length !== 0) {
+                    throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
+                }
+                continue;
+            }
+            // console.log(values[i].map(String).join('\t'));
+            const feed = { index: i, settings };
+            // iterate across the columns, using the header to map the value to the Feed object
+            for (const [j, header] of settings.feedHeaders.entries()) {
+                if (typeof header === 'string' && HEADER_LOOKUP[header] !== undefined) {
+                    feed[HEADER_LOOKUP[header]] = values[i][j];
                 }
             }
-            if (missing.length !== 0) {
-                throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
+            if (!feed.feed) {
+                continue;
             }
-            continue;
-        }
-        // console.log(values[i].map(String).join('\t'));
-        const feed = { index: i };
-        // iterate across the columns, using the header to map the value to the Feed object
-        for (const [j, header] of ctx.feedHeaders.entries()) {
-            if (typeof header === 'string' && HEADER_LOOKUP[header] !== undefined) {
-                feed[HEADER_LOOKUP[header]] = values[i][j];
+            if (typeof feed.time !== 'number') {
+                feed.time = 0;
             }
-        }
-        if (!feed.feed) {
-            continue;
-        }
-        if (typeof feed.time !== 'number') {
-            feed.time = 0;
-        }
-        // skip feed that is not obvious feed url
-        if (!ctx.feedPatternRe.test(feed.feed)) {
-            // entries with spaces are likely descriptions
-            if (!feed.feed.includes(' ')) {
-                ctx.warn(`"${feed.feed}" failed to match ${ctx.feedPatternRe.source}`);
+            // skip feed that is not obvious feed url
+            if (!settings.feedPatternRe.test(feed.feed)) {
+                // entries with spaces are likely descriptions
+                if (!feed.feed.includes(' ')) {
+                    ctx.warn(`"${feed.feed}" failed to match ${settings.feedPatternRe.source}`);
+                }
+                continue;
             }
-            continue;
+            feeds.push(feed);
         }
-        feeds.push(feed);
     }
-    return [tab, feeds];
+    // earliest first
+    feeds.sort((a, b) => a.time - b.time);
+    return feeds;
 }
 function updateFeedsTab(tab, row, column, value, feedHeaders) {
     const col = getFeedColumn(feedHeaders, column.label);
@@ -601,7 +648,6 @@ const markdownChars = /\*|_|\[/g;
 /**
  * feeds.js - Convert an RSS item to a Discord Embed.
  */
-const DEFAULT_APP_NAME = 'DiscouRSS';
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
 function makeDomain(regex, logo, appname) {
     return { regex, appname, logo: URL_ROOT + logo };
@@ -630,7 +676,7 @@ function findDomain(embeds) {
     }
     return (_a = set.values().next().value) !== null && _a !== void 0 ? _a : -1;
 }
-function buildEmbed(ctx, xml) {
+function buildEmbed(ctx, settings, xml) {
     var _a, _b;
     const html = Cheerio.load(xml.getChild('description').getValue());
     const embed = {
@@ -644,10 +690,10 @@ function buildEmbed(ctx, xml) {
     }
     const image = html('img').attr('src');
     if (image) {
-        if (ctx.image_format.value == 'image') {
+        if (settings.image_format.value == 'image') {
             embed.image = { url: image };
         }
-        else if (ctx.image_format.value == 'thumbnail') {
+        else if (settings.image_format.value == 'thumbnail') {
             embed.thumbnail = { url: image };
         }
     }
@@ -658,32 +704,33 @@ function buildEmbed(ctx, xml) {
  */
 function sendDiscordMessage(embeds, feed, ctx) {
     var _a, _b;
-    if (!ctx.webhook.value) {
+    const settings = feed.settings;
+    if (!settings.webhook.value) {
         return;
     }
     const message = {
         embeds,
-        username: ctx.appname.value,
+        username: settings.appname.value,
         content: String((_a = feed.discord) !== null && _a !== void 0 ? _a : ''),
-        avatar_url: truthy(ctx.avatar_url.value),
+        avatar_url: truthy(settings.avatar_url.value),
     };
     // evaluate message contents
     if (/^[0-9]+$/.test(message.content)) {
         message.allowed_mentions = { users: [message.content] };
         message.content = `<@${message.content}>`;
     }
-    const signature = ctx.signature.value;
+    const signature = settings.signature.value;
     if (signature && signature.includes('%s')) {
         message.content = signature.replace('%s', message.content);
     }
     // if we're not bundling, copy message for each embed.
-    const messages = ctx.bundle.value ? [message] :
+    const messages = settings.bundle.value ? [message] :
         message.embeds.map(e => { return { ...message, embeds: [e] }; });
     for (const msg of messages) {
         const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
-        msg.avatar_url = truthy(ctx.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
-        msg.username = (_b = truthy(ctx.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
-        const response = ctx.fetch(ctx.webhook.value, {
+        msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
+        msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
+        const response = ctx.fetch(settings.webhook.value, {
             method: 'post',
             payload: JSON.stringify(msg),
             muteHttpExceptions: true,
@@ -704,8 +751,8 @@ function sendDiscordMessage(embeds, feed, ctx) {
 function processFeed(feed, ctx) {
     // skip feed that has recently been scanned
     const diff = ctx.now - feed.time;
-    if (diff < ctx.feed_frequency.value * 1000) {
-        ctx.info(`${feed.feed} - hit frequency limit of ${ctx.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+    if (diff < feed.settings.feed_frequency.value * 1000) {
+        ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
         return { status: STATUS.SKIP, status_text: '' };
     }
     ctx.info(`${feed.feed} - fetching`);
@@ -754,7 +801,7 @@ function parseRssXml(content, feed, ctx) {
             foundLast = true;
             break;
         }
-        msg.embeds.push(buildEmbed(ctx, item));
+        msg.embeds.push(buildEmbed(ctx, feed.settings, item));
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not
@@ -774,144 +821,167 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-422-112-561';
+const version = '1-782-687-522-610';
 
 /**
  * index.js - main entry point for code
  */
-function run(ctx) {
-    var _a, _b;
+const TIMER_TRIGGER = DEFAULT_APP_NAME + 'Timer';
+/** A common execution wrapper. Handles context and logging. */
+function wrapper(method, ctx, func) {
     const spreadsheet = SpreadsheetApp.getActive();
     const logs = [];
     try {
         if (!ctx) {
-            ctx = buildContext(spreadsheet, logs);
-            if (!ctx) {
-                throw new Error('Unable to load Settings.');
-            }
+            ctx = new Context(spreadsheet, logs);
         }
-        ctx.info(`--- START (${version}) ---`);
-        const [tab, feeds] = readFeedsTab(ctx);
-        ctx.info(`Read ${feeds.length} rows`);
-        let count = 0;
-        for (const feed of feeds) {
-            let result;
-            try {
-                result = processFeed(feed, ctx);
-            }
-            catch (e) {
-                // even if we fail we want to count it.
-                count += 1;
-                ctx.warn(errorToString(e));
-                continue;
-            }
-            if (result.status === STATUS.SKIP) {
-                continue;
-            }
-            if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
-                sendDiscordMessage(result.message.embeds, feed, ctx);
-            }
-            // update feed state in spreadsheet
-            const update = (h, v) => {
-                updateFeedsTab(tab, feed.index, h, v, ctx.feedHeaders);
-            };
-            update(SHEET_HEADERS.time, ctx.now);
-            if (result.guid) {
-                update(SHEET_HEADERS.guid, result.guid);
-            }
-            update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
-            ctx.info(`Updated row ${feed.index + 1} ${STATUS[result.status]}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
-            count += 1;
-            if (count >= ctx.feed_limit.value) {
-                ctx.info(`hit limit of ${ctx.feed_limit.value} feeds - stopping`);
-                break;
-            }
-        }
+        ctx.info(`--- START ${method} (${version}) ---`);
+        return func(ctx);
     }
     catch (e) {
         log(logs, errorToString(e), LOG_LEVEL.ERROR);
     }
     finally {
-        writeLogs(spreadsheet, logs);
+        if (logs.length > 1) {
+            writeLogs(spreadsheet, logs);
+        }
+    }
+    return null;
+}
+/** Scan the Feeds table, read RSS feeds, and write to Discord. */
+function execute(ctx) {
+    var _a, _b;
+    const feeds = readFeedsTab(ctx);
+    ctx.info(`Read ${feeds.length} rows`);
+    for (const feed of feeds) {
+        const sheet = feed.settings.worksheet;
+        if (feed.settings.feedCount <= 0) {
+            continue;
+        }
+        let result;
+        try {
+            result = processFeed(feed, ctx);
+        }
+        catch (e) {
+            // even if we fail we want to count it.
+            ctx.warn(errorToString(e));
+            continue;
+        }
+        if (result.status === STATUS.SKIP) {
+            continue;
+        }
+        if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
+            sendDiscordMessage(result.message.embeds, feed, ctx);
+        }
+        // update feed state in spreadsheet
+        const update = (h, v) => {
+            updateFeedsTab(sheet, feed.index, h, v, feed.settings.feedHeaders);
+        };
+        update(SHEET_HEADERS.time, ctx.now);
+        if (result.guid) {
+            update(SHEET_HEADERS.guid, result.guid);
+        }
+        update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
+        ctx.info(`Updated row ${sheet.getName()}:${feed.index + 1} ${STATUS[result.status]}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
+        feed.settings.feedCount -= 1;
+        if (feed.settings.feedCount === 0) {
+            const limit = feed.settings.feed_limit.value;
+            ctx.info(`[${sheet.getName()}]: Hit limit of ${limit} feeds`);
+        }
     }
 }
-function buildContext(sheet, logs) {
-    const ctx = new Context(sheet, logs);
-    const [, data] = readSettingsTab(sheet);
-    const errors = ctx.setSettings(data);
-    if (errors.length) {
-        const msg = `Errors occurred during startup: ${errors.join('; ')}`;
-        log(logs, msg, LOG_LEVEL.ERROR);
-        throw new Error('Unable to construct Context');
-    }
-    ctx.feedPatternRe = new RegExp(ctx.feed_pattern.value);
-    return ctx;
-}
+/** Ran when opened. Permissions are in an indeterminate state here. */
 function onOpen() {
-    buildMenu();
+    SpreadsheetApp.getUi()
+        .createAddonMenu()
+        .addItem('Show sidebar', 'showSidebar')
+        .addToUi();
 }
-function hasSheet(name) {
-    return Boolean(SpreadsheetApp.getActive().getSheetByName(name));
+/** User clicks "setup" on sidebar. Sets up initial table. */
+function setup(worksheet) {
+    wrapper('setup', undefined, (ctx) => {
+        const sheet = ctx.spreadsheet.getSheetByName(worksheet);
+        if (sheet) {
+            setupFeedsTab(sheet);
+        }
+    });
 }
-function buildMenu() {
-    const menu = SpreadsheetApp.getUi().createMenu('DiscouRSS');
-    const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
-    if (isReady)
-        menu.addItem('Run', 'run');
-    if (getTimeTrigger()) {
-        menu.addItem('Disable', 'disableTriggers');
-    }
-    else {
-        menu.addItem('Enable', 'setupTriggers');
-    }
-    menu.addItem('Setup', 'sheetsSetup');
-    menu.addItem('About', 'about');
-    menu.addToUi();
+/** Ran when user clicks "Run" in the sidebar. */
+function run(ctx) {
+    wrapper('run', ctx, (ctx) => {
+        execute(ctx);
+    });
 }
-function about() {
-    SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput().append(`
-      <p>
-        <a href='https://disourss.stevarino.com/'>DiscouRSS Homepage</a>
-      </p>
-      <p>
-        Version: ${version}
-      </p>
-    `), 'About DiscouRSS');
+/** User submits settings from sidebar. Returns errors. */
+function setSettings(sheet, data) {
+    var _a;
+    return (_a = wrapper('setSettings', undefined, (ctx) => {
+        const errors = ctx.setSettings(sheet, data);
+        if (errors === null || errors === void 0 ? void 0 : errors.length) {
+            alert(`Errors occurred during saving:\n\n • ${errors.join('\n • ')}`);
+        }
+        else {
+            ctx.info('Settings updated');
+        }
+        return errors;
+    })) !== null && _a !== void 0 ? _a : [];
 }
-function setupTriggers() {
-    if (getTimeTrigger() === undefined) {
-        ScriptApp.newTrigger('timerTrigger')
-            .timeBased().everyMinutes(5).create();
-    }
-    buildMenu();
+/** Show the sidebar, duh. :P */
+function showSidebar() {
+    SpreadsheetApp.getUi().showSidebar(HtmlService.createHtmlOutputFromFile('sidebar').setTitle(DEFAULT_APP_NAME));
 }
-function disableTriggers() {
-    const trigger = getTimeTrigger();
-    if (trigger) {
-        ScriptApp.deleteTrigger(trigger);
-    }
-    buildMenu();
+/** Sidebar has requested data. */
+function getSidebarData() {
+    return wrapper('getSidebarData', undefined, (ctx) => {
+        return {
+            active: SpreadsheetApp.getActive().getActiveSheet().getName(),
+            version,
+            timer: Boolean(getTimer()),
+            sheets: ctx.getSettings(),
+        };
+    });
 }
-function sheetsSetup() {
-    const ctx = new Context(SpreadsheetApp.getActive());
-    setupFeedsTab(ctx.spreadsheet);
-    setupSettingsTab(ctx.spreadsheet, ctx.defaults);
-    buildMenu();
-}
-function getTimeTrigger() {
+/** Finds the timer trigger. */
+function getTimer() {
     for (const trigger of ScriptApp.getProjectTriggers()) {
         if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
             return trigger;
         }
     }
-    return null;
+    return undefined;
 }
-/**
- * Executes run when triggered by timer.
- */
+/** Enable or Disable the timer. */
+function toggleTimer() {
+    return wrapper('toggleTimer', undefined, () => {
+        const timer = getTimer();
+        if (timer) {
+            ScriptApp.deleteTrigger(timer);
+            return false;
+        }
+        ScriptApp.newTrigger(TIMER_TRIGGER).timeBased().everyHours(1).create();
+        return true;
+    });
+}
+/** Timer execution. */
 function timerTrigger() {
-    run();
+    wrapper('timer', undefined, ctx => {
+        execute(ctx);
+    });
 }
+function alert(msg) {
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(msg);
+}
+function deleteSettings(sheet) {
+    wrapper('deleteSettings', undefined, ctx => {
+        ctx.deleteSettings(sheet);
+        ctx.info('Settings deleted.');
+    });
+}
+function pollCurrentSheet() {
+    return SpreadsheetApp.getActive().getActiveSheet().getName();
+}
+/** HTTP endpoint. Currently unsued. */
 function doGet(e) {
     let params = JSON.stringify(e);
     return ContentService.createTextOutput(params).setMimeType(ContentService.MimeType.JSON);

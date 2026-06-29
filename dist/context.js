@@ -1,7 +1,7 @@
 /**
  * context.js - Context and Logging infrastructure.
  */
-import { CONFIG, Fetcher } from './common.js';
+import { CONFIG, Fetcher, DEFAULT_APP_NAME } from './common.js';
 export var LOG_LEVEL;
 (function (LOG_LEVEL) {
     LOG_LEVEL[LOG_LEVEL["ERROR"] = 0] = "ERROR";
@@ -59,11 +59,17 @@ class Setting {
         this.value = value;
         return this.validate();
     }
-    validate() {
-        for (const val of this.validators) {
+    get() {
+        return this.value;
+    }
+    validate(value) {
+        if (value === undefined) {
+            value = this.value;
+        }
+        for (const [test, msg] of this.validators) {
             try {
-                if (!val[0](this.value)) {
-                    return val[1];
+                if (!test(value)) {
+                    return msg;
                 }
             }
             catch (e) {
@@ -73,8 +79,12 @@ class Setting {
         return undefined;
     }
 }
-export class Context {
-    constructor(spreadsheet, logs) {
+/** Settings specific to a single sheet. */
+class SheetSettings {
+    constructor(worksheet) {
+        this.feedHeaders = [];
+        this.isSet = false;
+        this.worksheet = worksheet;
         this.webhook = new Setting('', 'Discord channel webhook.', [
             [v => v !== '', 'Webhook must be set.'],
             [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
@@ -89,68 +99,138 @@ export class Context {
             [(v) => ["image", "thumbnail", "none"].includes(v),
                 'Value must be "image", "thumbnail", or "none".'],
         ]);
-        this.bundle = new Setting(false, "Whether or not to bundle the items as a single discord message.");
-        this.feedHeaders = [];
+        this.bundle = new Setting(false, 'Whether to bundle all feed items as a single message to discord.');
+        this.feedPatternRe = new RegExp(this.feed_pattern.value);
+        this.settings = Object.fromEntries(Object.entries(this).filter(([_, v]) => v instanceof Setting));
+        this.feedCount = this.feed_limit.value;
+        this.loadSettings();
+    }
+    loadSettings() {
+        var _a, _b;
+        const json = (_a = this.getMetadata()) === null || _a === void 0 ? void 0 : _a.getValue();
+        if (!json) {
+            return;
+        }
+        console.log('Loading settings: ', json);
+        const settings = JSON.parse(json);
+        const errors = this.validateSettings(settings);
+        if (errors.length) {
+            const msg = `Errors occurred during startup: ${errors.join('; ')}`;
+            console.error(msg);
+            return msg;
+        }
+        for (const [name, setting] of Object.entries(settings)) {
+            (_b = this.settings[name]) === null || _b === void 0 ? void 0 : _b.set(setting);
+        }
+        this.isSet = true;
+        return;
+    }
+    getSettings() {
+        const settings = [];
+        for (const [key, val] of Object.entries(this)) {
+            if (val instanceof Setting) {
+                settings.push([key, val.value, val.help]);
+            }
+        }
+        return settings;
+    }
+    validateSettings(record) {
+        const errors = [];
+        // validate
+        for (const [name, setting] of Object.entries(this)) {
+            if (!(setting instanceof Setting)) {
+                continue;
+            }
+            // testing each value regardless of if its trying to be set.
+            const error = setting.validate(record[name]);
+            if (error) {
+                errors.push(`${name}: ${error}`);
+            }
+        }
+        return errors;
+    }
+    setSettings(settings) {
+        var _a, _b;
+        const record = Object.fromEntries(settings);
+        const errors = this.validateSettings(record);
+        if (errors.length) {
+            return errors;
+        }
+        const json = JSON.stringify(record);
+        if (!((_a = this.getMetadata()) === null || _a === void 0 ? void 0 : _a.setValue(json))) {
+            (_b = this.worksheet) === null || _b === void 0 ? void 0 : _b.addDeveloperMetadata(DEFAULT_APP_NAME, json);
+        }
+        // set new settings (needed for tests?)
+        this.loadSettings();
+        return errors;
+    }
+    deleteSettings() {
+        var _a;
+        (_a = this.getMetadata()) === null || _a === void 0 ? void 0 : _a.remove();
+    }
+    getMetadata() {
+        var _a, _b, _c;
+        return (_c = (_b = (_a = this.worksheet) === null || _a === void 0 ? void 0 : _a.createDeveloperMetadataFinder()) === null || _b === void 0 ? void 0 : _b.withKey(DEFAULT_APP_NAME).find()) === null || _c === void 0 ? void 0 : _c[0];
+    }
+}
+export class Context {
+    constructor(spreadsheet, logs) {
+        this.sheetSettings = {};
         this.logs = [];
         this.debug = false;
         this.defaults = [];
         this.fetcher = new Fetcher();
         this.now = new Date().getTime();
-        this.feedPatternRe = new RegExp('^https://');
         this.spreadsheet = spreadsheet;
         if (logs !== undefined) {
             this.logs = logs;
         }
-        this.defaults = this.getDefaults();
+        this.defaults = new SheetSettings().getSettings();
+        this.loadSettings();
     }
-    getDefaults() {
-        if (this.defaults.length) {
-            return this.defaults;
+    loadSettings() {
+        for (const sheet of this.spreadsheet.getSheets()) {
+            this.sheetSettings[sheet.getName()] = new SheetSettings(sheet);
         }
-        const defaults = [];
-        for (const [key, val] of Object.entries(this)) {
-            if (val instanceof Setting) {
-                defaults.push([key, val.value, val.help]);
-            }
-        }
-        return defaults;
     }
-    setSettings(settings) {
-        const errors = [];
-        for (const [key, val] of settings) {
-            if (typeof key !== 'string' || !this.hasOwnProperty(key)) {
-                continue;
-            }
-            const setting = this[key];
-            if (!(setting instanceof Setting)) {
-                continue;
-            }
-            const error = setting.set(val);
-            if (error !== undefined) {
-                errors.push(`${key}: ${error}`);
-                continue;
-            }
-            if (key === 'feed_pattern') {
-                this.feedPatternRe = new RegExp(val);
-            }
+    getSettings() {
+        const settings = {};
+        for (const [name, value] of Object.entries(this.sheetSettings)) {
+            settings[name] = {
+                name: name,
+                isSet: value.isSet,
+                settings: value.getSettings(),
+            };
         }
-        if (!errors.length) {
-            errors.push(...this.validate());
-        }
-        return errors;
+        return settings;
     }
-    validate() {
-        const errors = [];
-        for (const [key, val] of Object.entries(this)) {
-            if (val instanceof Setting) {
-                const error = val.validate();
-                if (error) {
-                    errors.push(`${key}: ${error}`);
-                }
-            }
-        }
-        return errors;
+    setSettings(sheet, values) {
+        var _a, _b;
+        return (_b = (_a = this.sheetSettings[sheet]) === null || _a === void 0 ? void 0 : _a.setSettings(values)) !== null && _b !== void 0 ? _b : [`Unrecognized sheet: "${sheet}"`];
     }
+    deleteSettings(sheet) {
+        var _a;
+        (_a = this.sheetSettings[sheet]) === null || _a === void 0 ? void 0 : _a.deleteSettings();
+    }
+    reset(spreadsheet) {
+        if (spreadsheet) {
+            this.spreadsheet = spreadsheet;
+        }
+        this.sheetSettings = {};
+        this.loadSettings();
+    }
+    // validate(): string[] {
+    //   const errors = [];
+    //   for (const [key, val] of Object.entries(this)) {
+    //     if (val instanceof Setting) {
+    //       const error = val.validate();
+    //       if (error) {
+    //         errors.push(`${key}: ${error}`);
+    //       }
+    //     }
+    //   }
+    //   return errors;
+    // }
     fetch(url, params) {
         return this.fetcher.fetch(url, params);
     }

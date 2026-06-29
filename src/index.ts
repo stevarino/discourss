@@ -4,14 +4,14 @@
 
 import * as CheerioLib from 'cheerio';
 import {
-  Result, SHEET_HEADERS, CELL_VALUE, SHEET_HEADER_TYPES, STATUS, Spreadsheet
+  Result, SHEET_HEADERS, CELL_VALUE, SHEET_HEADER_TYPES, STATUS, 
+  DEFAULT_APP_NAME, SidebarData
 } from './common.js';
 import {
   LOG_LEVEL, LOG_RECORD, errorToString, log, Context
 } from './context.js';
 import { 
-  readSettingsTab, readFeedsTab, updateFeedsTab, writeLogs, FEEDS_TAB, SETTINGS_TAB,
-  TIMER_TRIGGER, setupFeedsTab, setupSettingsTab
+  readFeedsTab, updateFeedsTab, writeLogs, setupFeedsTab,
 } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
@@ -21,149 +21,181 @@ declare global {
   const Cheerio: typeof CheerioLib;
 }
 
-export function run(ctx?: Context): void {
+const TIMER_TRIGGER = DEFAULT_APP_NAME + 'Timer';
+
+
+/** A common execution wrapper. Handles context and logging. */
+function wrapper<T>(
+    method: string, ctx: Context|undefined,
+    func: (ctx: Context) => T
+): T | null {
   const spreadsheet = SpreadsheetApp.getActive();
   const logs: LOG_RECORD[] = [];
   try {
     if (!ctx) {
-      ctx = buildContext(spreadsheet, logs);
-      if (!ctx) {
-        throw new Error('Unable to load Settings.');
-      }
+      ctx = new Context(spreadsheet, logs);
     }
-    ctx.info(`--- START (${version}) ---`);
-    const [tab, feeds] = readFeedsTab(ctx);
-    ctx.info(`Read ${feeds.length} rows`);
-
-    let count = 0;
-    for (const feed of feeds) {
-      let result: Result;
-      try {
-        result = processFeed(feed, ctx);
-      } catch (e) {
-        // even if we fail we want to count it.
-        count += 1;
-        ctx.warn(errorToString(e));
-        continue
-      }
-      if (result.status === STATUS.SKIP) {
-        continue;
-      }
-
-      if (result?.message?.embeds?.length) {
-        sendDiscordMessage(result.message.embeds, feed, ctx)
-      }
-      // update feed state in spreadsheet
-      const update = (h: SHEET_HEADER_TYPES, v: CELL_VALUE) => {
-        updateFeedsTab(tab, feed.index, h, v, ctx!.feedHeaders)
-      }
-      update(SHEET_HEADERS.time, ctx.now);
-      if (result.guid) {
-        update(SHEET_HEADERS.guid, result.guid);
-      }
-      update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
-      ctx.info(`Updated row ${feed.index+1} ${STATUS[result.status]}: ${result?.status_text}`);
-
-      count += 1;
-      if (count >= ctx.feed_limit.value) {
-        ctx.info(`hit limit of ${ctx.feed_limit.value} feeds - stopping`);
-        break;
-      }
-    }
+    ctx.info(`--- START ${method} (${version}) ---`);
+    return func(ctx);
   } catch (e) {
     log(logs, errorToString(e), LOG_LEVEL.ERROR);
   } finally {
-    writeLogs(spreadsheet, logs);
-  }
-}
-
-function buildContext(sheet: Spreadsheet, logs: LOG_RECORD[]) {
-  const ctx = new Context(sheet, logs);
-  const [, data] = readSettingsTab(sheet);
-  const errors = ctx.setSettings(data as [string, CELL_VALUE][]);
-  if (errors.length) {
-    const msg = `Errors occurred during startup: ${errors.join('; ')}`;
-    log(logs, msg, LOG_LEVEL.ERROR);
-    throw new Error('Unable to construct Context');
-  }
-  ctx.feedPatternRe = new RegExp(ctx.feed_pattern.value);
-  return ctx;
-}
-
-export function onOpen(): void {
-  buildMenu();
-}
-
-function hasSheet(name: string) {
-  return Boolean(SpreadsheetApp.getActive().getSheetByName(name));
-}
-
-function buildMenu(): void {
-  const menu = SpreadsheetApp.getUi().createMenu('DiscouRSS');
-  const isReady = hasSheet(FEEDS_TAB) && hasSheet(SETTINGS_TAB);
-  if (isReady) menu.addItem('Run', 'run');
-  if (getTimeTrigger()) {
-    menu.addItem('Disable', 'disableTriggers')
-  } else {
-    menu.addItem('Enable', 'setupTriggers')
-  }
-  menu.addItem('Setup', 'sheetsSetup');
-  menu.addItem('About', 'about')
-  menu.addToUi()
-}
-
-export function about(): void {
-  SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createHtmlOutput().append(`
-      <p>
-        <a href='https://disourss.stevarino.com/'>DiscouRSS Homepage</a>
-      </p>
-      <p>
-        Version: ${version}
-      </p>
-    `), 'About DiscouRSS'
-  )
-}
-
-export function setupTriggers(): void {
-  if (getTimeTrigger() === undefined) {
-    ScriptApp.newTrigger('timerTrigger')
-      .timeBased().everyMinutes(5).create();
-  }
-  buildMenu();
-}
-
-export function disableTriggers(): void {
-  const trigger = getTimeTrigger();
-  if (trigger) {
-    ScriptApp.deleteTrigger(trigger);
-  }
-  buildMenu();
-}
-
-export function sheetsSetup(): void {
-  const ctx = new Context(SpreadsheetApp.getActive());
-  setupFeedsTab(ctx.spreadsheet);
-  setupSettingsTab(ctx.spreadsheet, ctx.defaults);
-  buildMenu();
-}
-
-export function getTimeTrigger(): GoogleAppsScript.Script.Trigger | null {
-  for  (const trigger of ScriptApp.getProjectTriggers()) {
-    if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
-      return trigger;
+    if (logs.length > 1) {
+      writeLogs(spreadsheet, logs);
     }
   }
   return null;
 }
 
-/**
- * Executes run when triggered by timer.
- */
-export function timerTrigger(): void {
-  run();
+/** Scan the Feeds table, read RSS feeds, and write to Discord. */
+function execute(ctx: Context) {
+  const feeds = readFeedsTab(ctx);
+  ctx.info(`Read ${feeds.length} rows`);
+
+  for (const feed of feeds) {
+    const sheet = feed.settings.worksheet!;
+    if (feed.settings.feedCount <= 0) {
+      continue;
+    }
+    let result: Result;
+    try {
+      result = processFeed(feed, ctx);
+    } catch (e) {
+      // even if we fail we want to count it.
+      ctx.warn(errorToString(e));
+      continue
+    }
+    if (result.status === STATUS.SKIP) {
+      continue;
+    }
+
+    if (result?.message?.embeds?.length) {
+      sendDiscordMessage(result.message.embeds, feed, ctx)
+    }
+    // update feed state in spreadsheet
+    const update = (h: SHEET_HEADER_TYPES, v: CELL_VALUE) => {
+      updateFeedsTab(
+        sheet, feed.index, h, v, feed.settings.feedHeaders)
+    }
+    update(SHEET_HEADERS.time, ctx.now);
+    if (result.guid) {
+      update(SHEET_HEADERS.guid, result.guid);
+    }
+    update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
+    ctx.info(`Updated row ${sheet.getName()}:${feed.index+1} ${STATUS[result.status]}: ${result?.status_text}`);
+
+    feed.settings.feedCount -= 1;
+    if (feed.settings.feedCount === 0) {
+      const limit = feed.settings.feed_limit.value;
+      ctx.info(`[${sheet.getName()}]: Hit limit of ${limit} feeds`);
+    }
+  }
 }
 
+/** Ran when opened. Permissions are in an indeterminate state here. */
+export function onOpen(): void {
+  SpreadsheetApp.getUi()
+    .createAddonMenu()
+    .addItem('Show sidebar', 'showSidebar')
+    .addToUi();
+}
+
+/** User clicks "setup" on sidebar. Sets up initial table. */
+export function setup(worksheet: string): void {
+  wrapper('setup', undefined, (ctx) => {
+    const sheet = ctx.spreadsheet.getSheetByName(worksheet);
+    if (sheet) {
+      setupFeedsTab(sheet);
+    }
+  });
+}
+
+/** Ran when user clicks "Run" in the sidebar. */
+export function run(ctx?: Context): void {
+  wrapper('run', ctx, (ctx) => {
+    execute(ctx);
+  });
+}
+
+/** User submits settings from sidebar. Returns errors. */
+export function setSettings(sheet: string, data: [string, CELL_VALUE][]): string[] {
+  return wrapper('setSettings', undefined,(ctx) => {
+    const errors = ctx.setSettings(sheet, data);
+    if (errors?.length) {
+      alert(`Errors occurred during saving:\n\n • ${errors.join('\n • ')}`);
+    } else {
+      ctx.info('Settings updated');
+    }
+    return errors;
+  }) ?? [];
+}
+
+/** Show the sidebar, duh. :P */
+export function showSidebar(): void {
+  SpreadsheetApp.getUi().showSidebar(
+    HtmlService.createHtmlOutputFromFile('sidebar').setTitle(DEFAULT_APP_NAME)
+  );
+}
+
+/** Sidebar has requested data. */
+export function getSidebarData(): SidebarData {
+  return wrapper('getSidebarData', undefined, (ctx) => {
+    return {
+      active: SpreadsheetApp.getActive().getActiveSheet().getName(),
+      version,
+      timer: Boolean(getTimer()),
+      sheets: ctx.getSettings(),
+    } as SidebarData;
+  })!;
+}
+
+/** Finds the timer trigger. */
+function getTimer() {
+  for  (const trigger of ScriptApp.getProjectTriggers()) {
+    if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
+      return trigger;
+    }
+  }
+  return undefined;
+}
+
+/** Enable or Disable the timer. */
+export function toggleTimer(): boolean|null {
+  return wrapper('toggleTimer', undefined, () => {
+    const timer = getTimer();
+    if (timer) {
+      ScriptApp.deleteTrigger(timer);
+      return false;
+    }
+    ScriptApp.newTrigger(TIMER_TRIGGER).timeBased().everyHours(1).create();
+    return true;
+  });
+}
+
+/** Timer execution. */
+export function timerTrigger(): void {
+  wrapper('timer', undefined, ctx => {
+    execute(ctx);
+  });
+}
+
+export function alert(msg: string): void {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert(msg);
+}
+
+export function deleteSettings(sheet: string): void {
+  wrapper('deleteSettings', undefined, ctx => {
+    ctx.deleteSettings(sheet);
+    ctx.info('Settings deleted.');
+  })
+}
+
+export function pollCurrentSheet(): string {
+  return SpreadsheetApp.getActive().getActiveSheet().getName();
+}
+
+/** HTTP endpoint. Currently unsued. */
 export function doGet(e: GoogleAppsScript.Events.DoGet): GoogleAppsScript.Content.TextOutput {
   let params = JSON.stringify(e);
   return ContentService.createTextOutput(params).setMimeType(
