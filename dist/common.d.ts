@@ -4,8 +4,11 @@
 /** If test is truthy, return test, otherwise return other (or undefined) */
 export declare const DEFAULT_APP_NAME = "DiscouRSS";
 export declare function truthy<T>(test: T, other?: T): T | undefined;
+export type Button = "CLOSE" | "OK" | "CANCEL" | "YES" | "NO";
+export type ButtonSet = "OK" | "OK_CANCEL" | "YES_NO" | "YES_NO_CANCEL";
 export declare const CONFIG: {
     LOG_TO_STDERR: boolean;
+    LOG_DEBUG: boolean;
 };
 export interface PartialFeed {
     index: number;
@@ -59,14 +62,6 @@ export interface Result {
     message?: Message;
     sheets_update?: [SHEET_HEADERS_FIELDS, string | number][];
 }
-export interface BaseContext {
-    spreadsheet: Spreadsheet;
-    feedHeaders: CELL_VALUE[];
-    feedPatternRe: RegExp;
-    error(message: string): void;
-    warn(message: string): void;
-    info(message: string): void;
-}
 export interface SHEET_HEADER_TYPES {
     label: string;
     help: string;
@@ -93,12 +88,16 @@ export interface MetadataContainer {
     createDeveloperMetadataFinder(): MetadataFinder;
 }
 export type Spreadsheet = {
+    getId(): string;
     getSheetByName(name: string): Worksheet | null;
+    getSheetById(id: number): Worksheet | null;
     insertSheet(name: string): Worksheet;
     getSheets(): Worksheet[];
 } & MetadataContainer;
 export type Worksheet = {
+    getSheetId(): number;
     getName(): string;
+    clear(): void;
     getLastRow(): number;
     getLastColumn(): number;
     getDataRange(): Range;
@@ -139,13 +138,23 @@ export interface XmlElement {
  */
 /** Fetcher object for use in context. */
 export declare class Fetcher {
-    fetch(url: string, req: FetchRequest): FetchResponse;
+    default_params: {
+        muteHttpExceptions: boolean;
+        timeoutSeconds: number;
+    };
+    default_http_headers: {
+        "User-Agent": string;
+    };
+    fetch(url: string, req: FetchRequest, log?: (log: string) => void): FetchResponse;
 }
 export interface FetchRequest {
     method?: 'get' | 'post';
     payload?: string;
     muteHttpExceptions?: boolean;
     contentType?: string;
+    timeoutSeconds?: number;
+    followRedirects?: true;
+    headers?: Record<string, string>;
 }
 export interface FetchResponse {
     getResponseCode(): number;
@@ -153,14 +162,28 @@ export interface FetchResponse {
 }
 export interface SidebarSheetsData {
     name: string;
+    sheetId: string;
     isSet: boolean;
-    settings: [string, CELL_VALUE, string][];
+    settings: [string, CELL_VALUE][];
 }
 export interface SidebarData {
     version: string;
-    active: string;
+    sheetId: string;
     timer: boolean;
     sheets: Record<string, SidebarSheetsData>;
+}
+export interface SidebarPollResponse {
+    version: string;
+    sheetId: string;
+    sheetNames: [string, string][];
+}
+export interface SidebarSaveRequest {
+    isNew: boolean;
+    sheetId: string;
+    fields: [string, CELL_VALUE][];
+}
+export interface SidebarSaveResponse {
+    sheetData?: SidebarSheetsData;
 }
 export interface SettingInterface<T = CELL_VALUE> {
     value: T;

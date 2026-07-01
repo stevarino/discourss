@@ -78,7 +78,10 @@ export function setupFeedsTab(worksheet: Worksheet): void {
 /**
  * Given an array of logs, inserts the logs into the `logs` tab.
  */
-export function writeLogs(sheet: Spreadsheet, logs: LOG_RECORD[]): void {
+export function writeLogs(
+  sheet: Spreadsheet, logs: LOG_RECORD[], logger?: (log: string) => void
+): void {
+  if (!logger) logger = () => {};
   const header = ['epoch', 'DateTime (UTC)', 'Level', 'Message'];
   try {
     // let rows: CELL_VALUE[][] = [['epoch', 'DateTime (UTC)', 'Level', 'Message']];
@@ -120,7 +123,8 @@ export function writeLogs(sheet: Spreadsheet, logs: LOG_RECORD[]): void {
     // wrap text logs
     tab.getRange(1, colCount, newRows.length, 1).setWrap(true).setVerticalAlignment('top');
   } catch (e) {
-    console.error(errorToString(e));
+    // possibly no context
+    logger(errorToString(e));
   }
 }
 
@@ -181,8 +185,8 @@ export function readFeedsTab(ctx: Context): Feed[] {
   return feeds;
 }
 
-export function updateFeedsTab(tab: Worksheet, row: number, column: SHEET_HEADER_TYPES, value: CELL_VALUE, feedHeaders: CELL_VALUE[]): void {
-  const col = getFeedColumn(feedHeaders, column.label);
-  tab.getRange(row + 1, col + 1, 1, 1).setValues([[value]])
+export function updateFeedsTab(feed: Feed, column: SHEET_HEADER_TYPES, value: CELL_VALUE): void {
+  const col = getFeedColumn(feed.settings.feedHeaders, column.label);
+  feed.settings.worksheet?.getRange(feed.index + 1, col + 1, 1, 1)?.setValues([[value]]);
   return;
 }

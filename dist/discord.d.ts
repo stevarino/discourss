@@ -3,7 +3,7 @@
  */
 import { Context } from './context.js';
 import { Embed, Feed, XmlElement, SettingsInterface } from './common.js';
-export declare function buildEmbed(ctx: Context, settings: SettingsInterface, xml: XmlElement): Embed;
+export declare function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElement): Embed;
 /**
  * Send a message through discord using the webhook.
  */

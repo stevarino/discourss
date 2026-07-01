@@ -1,11 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { processFeed } from './rss.js';
-import { buildContext, MockFetcher } from './mocks.js';
+import { buildMocks, MockFetcher } from './mocks.js';
 import { Feed, STATUS } from './common.js';
-
-
-const WORKSHEET_NAME = 'Feeds';
 
 const SAMPLE_RSS_FEED = `
 <rss version="2.0">
@@ -33,8 +30,8 @@ const SAMPLE_RSS_FEED = `
 
 describe('rss.ts unit tests', () => {
   test('skips feed processing if checked recently (frequency limit)', () => {
-    const ctx = buildContext(WORKSHEET_NAME)
-    const settings = ctx.sheetSettings[WORKSHEET_NAME]!;
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     settings.feed_frequency.value = 3600; // 1 hour limit
 
     const feed: Feed = {
@@ -52,8 +49,8 @@ describe('rss.ts unit tests', () => {
   });
 
   test('returns error status if server responds with non-204 status code', () => {
-    const ctx = buildContext(WORKSHEET_NAME);
-    const settings = ctx.sheetSettings[WORKSHEET_NAME]!;
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
@@ -75,8 +72,8 @@ describe('rss.ts unit tests', () => {
   });
 
   test('correctly parses feed items and extracts title, link, guid, and description paragraphs', () => {
-    const ctx = buildContext(WORKSHEET_NAME);
-    const settings = ctx.sheetSettings[WORKSHEET_NAME]!;
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
@@ -112,8 +109,8 @@ describe('rss.ts unit tests', () => {
   });
 
   test('extracts images as main image or thumbnail based on configuration', () => {
-    const ctx = buildContext(WORKSHEET_NAME);
-    const settings = ctx.sheetSettings[WORKSHEET_NAME]!;
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
 
     const url = 'https://example.com/rss';
     const feed: Feed = {
@@ -161,8 +158,8 @@ describe('rss.ts unit tests', () => {
   });
 
   test('stops parsing when it hits the last seen guid', () => {
-    const ctx = buildContext(WORKSHEET_NAME);
-    const settings = ctx.sheetSettings[WORKSHEET_NAME]!;
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
 
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
@@ -190,8 +187,8 @@ describe('rss.ts unit tests', () => {
   });
 
   test('discards message embeds and flags as "new feed" if last seen guid is not found and is not "0"', () => {
-    const ctx = buildContext(WORKSHEET_NAME);
-    const settings = ctx.sheetSettings[WORKSHEET_NAME]!;
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 

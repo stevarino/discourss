@@ -3,29 +3,19 @@
 import * as cheerio from 'cheerio';
 
 import {
-  Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement,
+  Spreadsheet, CELL_VALUE, Worksheet, XmlDocument, XmlElement,
   FetchRequest, FetchResponse, Fetcher, MetadataContainer
 } from './common.js';
 import { Context } from './context.js';
 
-export function buildContext(sheetName: string): Context {
+/** Returns a context with a mock spreadsheet and one mock worksheet */
+export function buildMocks(sheetName='Feeds'): [Context, Spreadsheet, Worksheet] {
   const ss = new MockSpreadsheet();
-  ss.insertSheet(sheetName)
+  const ws = ss.insertSheet(sheetName)
   const ctx = new Context(ss);
   ctx.fetcher = new MockFetcher();
-  ctx.sheetSettings[sheetName].isSet = true;
-  return ctx;
-}
-
-export function createTestContext(sheet: Spreadsheet): BaseContext {
-  return {
-    spreadsheet: sheet,
-    feedHeaders: [],
-    feedPatternRe: /^https:\/\//,
-    error: () => {},
-    warn: () => {},
-    info: () => {}
-  };
+  ctx.sheetSettings[ws.getSheetId()].isSet = true;
+  return [ctx, ss, ws];
 }
 
 export class MockResponse implements FetchResponse {
@@ -51,7 +41,7 @@ export class MockFetcher extends Fetcher {
   private defaultResponse: FetchResponse = new MockResponse('', 404);
   requests: Record<string, {req: FetchRequest, res: FetchResponse}[]> = {};
 
-  override fetch(url: string, req: FetchRequest): FetchResponse {
+  override fetch(url: string, req: FetchRequest, _: any): FetchResponse {
     let res: FetchResponse | null = null;
     for (const rule of this.rules) {
       if (typeof rule.urlPattern === 'string') {
@@ -219,15 +209,25 @@ abstract class MockMetadataContainer implements MetadataContainer {
 
 class MockWorksheet extends MockMetadataContainer implements Worksheet  {
   public name: string;
+  private id: number;
   private cells = new Map<string, CELL_VALUE>();
 
-  constructor(name: string) {
+  constructor(name: string, sheetId: number) {
     super();
+    this.id = sheetId;
     this.name = name;
+  }
+
+  getSheetId(): number {
+    return this.id;
   }
 
   getName(): string {
     return this.name;
+  }
+
+  clear(): void {
+    this.cells.clear();
   }
 
   getCell(r: number, c: number): CELL_VALUE {
@@ -287,13 +287,26 @@ class MockWorksheet extends MockMetadataContainer implements Worksheet  {
 
 export class MockSpreadsheet extends MockMetadataContainer implements Spreadsheet {
   public sheets: Map<string, MockWorksheet> = new Map();
+  public sheetsById: Map<number, MockWorksheet> = new Map();
+  private sheetIndex = 0;
+  
+  getId(): string {
+    return 'test';
+  }
+
+  getSheetById(id: number): MockWorksheet | null {
+    return this.sheetsById.get(id) ?? null;
+  }
+
   getSheetByName(name: string): MockWorksheet | null {
     return this.sheets.get(name) ?? null;
   }
 
   insertSheet(name: string): MockWorksheet {
-    const ws = new MockWorksheet(name);
+    this.sheetIndex += 1;
+    const ws = new MockWorksheet(name, this.sheetIndex);
     this.sheets.set(name, ws);
+    this.sheetsById.set(this.sheetIndex, ws);
     return ws;
   }
 

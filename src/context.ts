@@ -8,11 +8,11 @@ import {
   SidebarSheetsData
 } from './common.js';
 
-export type LOG_RECORD = [number, LOG_LEVEL, string];
+/** Purge logs every 10s */
+const PURGE_INTERVAL = 5_000;
 
-export enum LOG_LEVEL {
-  ERROR, WARNING, INFO
-};
+export type LOG_RECORD = [number, LOG_LEVEL, string];
+export enum LOG_LEVEL { ERROR, WARNING, INFO, DEBUG };
 
 type maybeError = string|Error|LOG_RECORD;
 
@@ -35,6 +35,9 @@ export function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD{
 }
 
 export function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void {
+  if (level === LOG_LEVEL.DEBUG && ! CONFIG.LOG_DEBUG) {
+    return;
+  }
   if (!Array.isArray(message)) {
     message = errorToLogRecord(message, level ?? LOG_LEVEL.INFO);
   }
@@ -45,6 +48,13 @@ export function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL):
         break;
       case LOG_LEVEL.WARNING:
         console.warn(LOG_LEVEL[message[1]], message[2]);
+        break;
+      case LOG_LEVEL.INFO:
+        console.info(LOG_LEVEL[message[1]], message[2]);
+        break;
+      case LOG_LEVEL.DEBUG:
+        // no console.debug in AppsScript
+        console.log(LOG_LEVEL[message[1]], message[2]);
         break;
       default:
         console.info(LOG_LEVEL[message[1]], message[2]);
@@ -60,12 +70,10 @@ type SettingsValidator = [
 
 class Setting<T extends CELL_VALUE> implements SettingInterface {
   value: T;
-  help: string;
   validators: SettingsValidator[]
 
-  constructor(value: T, help: string, validators?: SettingsValidator[]) {
+  constructor(value: T, validators?: SettingsValidator[]) {
     this.value = value;
-    this.help = help;
     this.validators = validators ?? [];
   }
 
@@ -102,6 +110,11 @@ class Setting<T extends CELL_VALUE> implements SettingInterface {
   }
 }
 
+
+// https://discordapp.com/api/webhooks/.../...
+// https://discord.com/api/webhooks/.../...
+const DISCORD_URL_RE = new RegExp('^https://discord(app)?\\.com/api/webhooks/.*');
+
 /** Settings specific to a single sheet. */
 class SheetSettings implements SettingsInterface {
   worksheet: Worksheet | undefined;
@@ -126,42 +139,25 @@ class SheetSettings implements SettingsInterface {
     this.worksheet = worksheet;
     this.webhook = new Setting(
       '', 
-      'Discord channel webhook.',
       [
         [v => v !== '', 'Webhook must be set.'],
-        [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
+        [v => DISCORD_URL_RE.test(String(v)), 'Invalid discord hook URL'],
       ],
     );
-    this.appname = new Setting(
-      '',
-      'The Discord Bot name.'
-    );
-    this.avatar_url = new Setting(
-      '', 
-      'URL to an image used for the Discord Bot.');
-    this.signature = new Setting(
-      '%s Posted:',
-      'The signature used for the title. "%s" is replaced with the discord user.'
-    );
-    this.feed_pattern = new Setting(
-      '^https://',
-      'Regular expression that individual feeds are validated against.'
-    );
-    this.feed_limit = new Setting(
-      5, 'How many feeds to process per run.');
-    this.feed_frequency = new Setting(
-      3600, 'How long a single feed will be scanned (in seconds).');
+    this.appname = new Setting('');
+    this.avatar_url = new Setting('');
+    this.signature = new Setting('%s Posted:');
+    this.feed_pattern = new Setting('^https://',);
+    this.feed_limit = new Setting(5);
+    this.feed_frequency = new Setting(3600);
     this.image_format = new Setting(
       'image',
-      'How to attach the image from the feed item (image|thumbnail|none)',
       [
         [(v) => ["image", "thumbnail", "none"].includes(v as string), 
         'Value must be "image", "thumbnail", or "none".'],
       ]
     );
-    this.bundle = new Setting(
-      false, 'Whether to bundle all feed items as a single message to discord.'
-    )
+    this.bundle = new Setting(false)
 
     this.feedPatternRe = new RegExp(this.feed_pattern.value);
     this.settings = Object.fromEntries(
@@ -175,7 +171,6 @@ class SheetSettings implements SettingsInterface {
     if (!json) {
       return;
     }
-    console.log('Loading settings: ', json);
     const settings: Record<string, CELL_VALUE> = JSON.parse(json);
     const errors = this.validateSettings(settings);
     if (errors.length) {
@@ -190,14 +185,10 @@ class SheetSettings implements SettingsInterface {
     return;
   }
 
-  getSettings(): [string, CELL_VALUE, string][] {
-    const settings: [string, CELL_VALUE, string][] = [];
-    for (const [key, val] of Object.entries(this)) {
-      if (val instanceof Setting) {
-        settings.push([key, val.value, val.help]);
-      }
-    }
-    return settings;
+  getSettings(): [string, CELL_VALUE][] {
+    return Object.entries(this)
+      .filter(([_, v]) => v instanceof Setting)
+      .map(([k, v]) => [k, v.value]);
   }
 
   validateSettings(record: Record<string, CELL_VALUE>): string[] {
@@ -245,17 +236,19 @@ class SheetSettings implements SettingsInterface {
 export class Context {
   sheetSettings: Record<string, SheetSettings> = {};
   logs: LOG_RECORD[] = [];
-  debug = false;
   fetcher: Fetcher;
+  logger: ((logs: LOG_RECORD[]) => void) | undefined;
 
   now: number;
+  purgedAt: number;
   spreadsheet: Spreadsheet;
 
-  defaults: [string, CELL_VALUE, string][] = [];
+  defaults: [string, CELL_VALUE][] = [];
 
   constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]) {
     this.fetcher = new Fetcher();
     this.now = new Date().getTime();
+    this.purgedAt = new Date().getTime();
     this.spreadsheet = spreadsheet;
     if (logs !== undefined) {
       this.logs = logs;
@@ -266,15 +259,16 @@ export class Context {
 
   loadSettings(): void {
     for (const sheet of this.spreadsheet.getSheets()) {
-      this.sheetSettings[sheet.getName()] = new SheetSettings(sheet);
+      this.sheetSettings[sheet.getSheetId()] = new SheetSettings(sheet);
     }
   }
 
   getSettings(): Record<string, SidebarSheetsData> {
     const settings: Record<string, SidebarSheetsData> = {}
-    for (const [name, value] of Object.entries(this.sheetSettings)) {
-      settings[name] = {
-        name: name,
+    for (const [sheetId, value] of Object.entries(this.sheetSettings)) {
+      settings[sheetId] = {
+        sheetId: sheetId,
+        name: value.worksheet!.getName(),
         isSet: value.isSet,
         settings: value.getSettings(),
       }
@@ -282,12 +276,29 @@ export class Context {
     return settings;
   }
 
-  setSettings(sheet: string, values: [string, CELL_VALUE][]): string[] {
-    return this.sheetSettings[sheet]?.setSettings(values) ?? [`Unrecognized sheet: "${sheet}"`]
+  getSheetData(sheetId: string): SidebarSheetsData {
+    const record = this.sheetSettings[sheetId];
+    if (!record) {
+      throw new Error(`Sheet "${sheetId}" not found.`);
+    }
+    return {
+      sheetId: sheetId,
+      name: record.worksheet!.getName(),
+      isSet: record.isSet,
+      settings: record.getSettings(),
+    }
   }
 
-  deleteSettings(sheet: string): void {
-    this.sheetSettings[sheet]?.deleteSettings();
+  getWorksheet(sheetId: string): Worksheet | undefined {
+    return this.sheetSettings[sheetId]?.worksheet;
+  }
+
+  setSettings(sheetId: string, values: [string, CELL_VALUE][]): string[] {
+    return this.sheetSettings[sheetId]?.setSettings(values) ?? [`Unrecognized sheet: "${sheetId}"`]
+  }
+
+  deleteSettings(sheetId: string): void {
+    this.sheetSettings[sheetId]?.deleteSettings();
   }
 
   reset(spreadsheet?: Spreadsheet): void {
@@ -297,26 +308,18 @@ export class Context {
     this.sheetSettings = {};
     this.loadSettings();
   }
-
-  // validate(): string[] {
-  //   const errors = [];
-  //   for (const [key, val] of Object.entries(this)) {
-  //     if (val instanceof Setting) {
-  //       const error = val.validate();
-  //       if (error) {
-  //         errors.push(`${key}: ${error}`);
-  //       }
-  //     }
-  //   }
-  //   return errors;
-  // }
   
-  fetch(url: string, params: FetchRequest): FetchResponse {
-    return this.fetcher.fetch(url, params)
+  fetch(url: string, params?: FetchRequest): FetchResponse {
+    return this.fetcher.fetch(
+      url, params ?? {}, (msg) => this.log(LOG_LEVEL.DEBUG, msg));
   }
 
   log(level: LOG_LEVEL, message: string): void {
-    this.logs.push([new Date().getTime(), level, message]);
+    log(this.logs, message, level);
+    if (new Date().getTime() - this.purgedAt > PURGE_INTERVAL) {
+      if (this.logger) this.logger(this.logs);
+      this.logs.length = 0;
+    }
   }
 
   error(message: string): void {
@@ -329,5 +332,9 @@ export class Context {
   
   info(message: string): void {
     log(this.logs, message, LOG_LEVEL.INFO)
+  }
+
+  debug(message: string): void {
+    log(this.logs, message, LOG_LEVEL.DEBUG);
   }
 }

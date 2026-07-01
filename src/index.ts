@@ -4,8 +4,9 @@
 
 import * as CheerioLib from 'cheerio';
 import {
-  Result, SHEET_HEADERS, CELL_VALUE, SHEET_HEADER_TYPES, STATUS, 
-  DEFAULT_APP_NAME, SidebarData
+  Result, SHEET_HEADERS, STATUS, DEFAULT_APP_NAME, SidebarData,
+  SidebarSaveRequest, SidebarSaveResponse, ButtonSet, Button, CONFIG,
+  SidebarPollResponse,
 } from './common.js';
 import {
   LOG_LEVEL, LOG_RECORD, errorToString, log, Context
@@ -21,8 +22,8 @@ declare global {
   const Cheerio: typeof CheerioLib;
 }
 
-const TIMER_TRIGGER = DEFAULT_APP_NAME + 'Timer';
-
+CONFIG.LOG_TO_STDERR = true;
+CONFIG.LOG_DEBUG = false;
 
 /** A common execution wrapper. Handles context and logging. */
 function wrapper<T>(
@@ -35,13 +36,18 @@ function wrapper<T>(
     if (!ctx) {
       ctx = new Context(spreadsheet, logs);
     }
-    ctx.info(`--- START ${method} (${version}) ---`);
+    ctx.logger = (logs) => writeLogs(
+      spreadsheet, logs, (log) => ctx!.error(log));
+    if (method) {
+      ctx.info(`--- START ${method} (${version}) ---`);
+    }
     return func(ctx);
   } catch (e) {
     log(logs, errorToString(e), LOG_LEVEL.ERROR);
   } finally {
-    if (logs.length > 1) {
-      writeLogs(spreadsheet, logs);
+    log(logs, 'Finished', LOG_LEVEL.DEBUG);
+    if (logs.length) {
+      writeLogs(spreadsheet, logs, console.error);
     }
   }
   return null;
@@ -62,7 +68,10 @@ function execute(ctx: Context) {
       result = processFeed(feed, ctx);
     } catch (e) {
       // even if we fail we want to count it.
-      ctx.warn(errorToString(e));
+      const err = errorToString(e);
+      ctx.warn(err);
+      updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
+      updateFeedsTab(feed, SHEET_HEADERS.status, `ERROR: ${err}`);
       continue
     }
     if (result.status === STATUS.SKIP) {
@@ -72,16 +81,11 @@ function execute(ctx: Context) {
     if (result?.message?.embeds?.length) {
       sendDiscordMessage(result.message.embeds, feed, ctx)
     }
-    // update feed state in spreadsheet
-    const update = (h: SHEET_HEADER_TYPES, v: CELL_VALUE) => {
-      updateFeedsTab(
-        sheet, feed.index, h, v, feed.settings.feedHeaders)
-    }
-    update(SHEET_HEADERS.time, ctx.now);
+    updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
     if (result.guid) {
-      update(SHEET_HEADERS.guid, result.guid);
+      updateFeedsTab(feed, SHEET_HEADERS.guid, result.guid);
     }
-    update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
+    updateFeedsTab(feed, SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
     ctx.info(`Updated row ${sheet.getName()}:${feed.index+1} ${STATUS[result.status]}: ${result?.status_text}`);
 
     feed.settings.feedCount -= 1;
@@ -100,16 +104,6 @@ export function onOpen(): void {
     .addToUi();
 }
 
-/** User clicks "setup" on sidebar. Sets up initial table. */
-export function setup(worksheet: string): void {
-  wrapper('setup', undefined, (ctx) => {
-    const sheet = ctx.spreadsheet.getSheetByName(worksheet);
-    if (sheet) {
-      setupFeedsTab(sheet);
-    }
-  });
-}
-
 /** Ran when user clicks "Run" in the sidebar. */
 export function run(ctx?: Context): void {
   wrapper('run', ctx, (ctx) => {
@@ -118,16 +112,34 @@ export function run(ctx?: Context): void {
 }
 
 /** User submits settings from sidebar. Returns errors. */
-export function setSettings(sheet: string, data: [string, CELL_VALUE][]): string[] {
+export function setSettings(req: SidebarSaveRequest): SidebarSaveResponse | null {
   return wrapper('setSettings', undefined,(ctx) => {
-    const errors = ctx.setSettings(sheet, data);
+    const sheet = ctx.spreadsheet.getSheetById(parseInt(req.sheetId));
+    if (!sheet) {
+      alert('ERROR: Sheet not found.');
+      return {};
+    }
+    if (req.isNew) {
+      if (!sheet) return {errors: ['Could not find sheet']};
+      if (sheet.getLastRow()) {
+        const res = alert(
+          `Worksheet ${sheet.getName()} is not empty. Clear it now?`,
+          'YES_NO_CANCEL');
+        if (res === 'CANCEL') return {};
+        if (res === 'YES') sheet.clear();
+      }
+      setupFeedsTab(sheet);
+    }
+    const errors = ctx.setSettings(req.sheetId, req.fields);
     if (errors?.length) {
       alert(`Errors occurred during saving:\n\n • ${errors.join('\n • ')}`);
-    } else {
-      ctx.info('Settings updated');
+      return {};
     }
-    return errors;
-  }) ?? [];
+    ctx.info(`[${sheet.getName()}${req.isNew ? ' (new)' : ''}] Settings updated.`);
+    return {
+      sheetData: ctx.getSheetData(req.sheetId),
+    }
+  });
 }
 
 /** Show the sidebar, duh. :P */
@@ -139,9 +151,11 @@ export function showSidebar(): void {
 
 /** Sidebar has requested data. */
 export function getSidebarData(): SidebarData {
-  return wrapper('getSidebarData', undefined, (ctx) => {
+  return wrapper('', undefined, (ctx) => {
     return {
-      active: SpreadsheetApp.getActive().getActiveSheet().getName(),
+      // NOTE: sheetId is a string, not a number, as object keys are coerced
+      // into strings (or Symbols) and sheetId is often used as a Record key.
+      sheetId: String(SpreadsheetApp.getActive().getActiveSheet().getSheetId()),
       version,
       timer: Boolean(getTimer()),
       sheets: ctx.getSettings(),
@@ -151,12 +165,19 @@ export function getSidebarData(): SidebarData {
 
 /** Finds the timer trigger. */
 function getTimer() {
+  console.log(
+    ScriptApp.getProjectTriggers().map(t => [t.getUniqueId(), t.getHandlerFunction()]))
+  
+  let timer: GoogleAppsScript.Script.Trigger|undefined = undefined;
   for  (const trigger of ScriptApp.getProjectTriggers()) {
-    if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
-      return trigger;
+    if (trigger.getHandlerFunction() === 'DiscouRSSTimer') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+    if (trigger.getHandlerFunction() === discourssTimerTrigger.name) {
+      timer = trigger;
     }
   }
-  return undefined;
+  return timer;
 }
 
 /** Enable or Disable the timer. */
@@ -167,32 +188,50 @@ export function toggleTimer(): boolean|null {
       ScriptApp.deleteTrigger(timer);
       return false;
     }
-    ScriptApp.newTrigger(TIMER_TRIGGER).timeBased().everyHours(1).create();
+    ScriptApp.newTrigger(discourssTimerTrigger.name).timeBased().everyHours(1).create();
     return true;
   });
 }
 
 /** Timer execution. */
-export function timerTrigger(): void {
+export function discourssTimerTrigger(): void {
   wrapper('timer', undefined, ctx => {
     execute(ctx);
   });
 }
 
-export function alert(msg: string): void {
+export function alert(msg: string, buttonset?: ButtonSet): Button {
   const ui = SpreadsheetApp.getUi();
-  ui.alert(msg);
+  let btn: GoogleAppsScript.Base.Button;
+  if (buttonset) {
+    btn = SpreadsheetApp.getUi().alert(msg, ui.ButtonSet[buttonset]);
+  } else {
+    btn = SpreadsheetApp.getUi().alert(msg);
+  }
+  return btn.toString() as Button;
 }
 
-export function deleteSettings(sheet: string): void {
-  wrapper('deleteSettings', undefined, ctx => {
-    ctx.deleteSettings(sheet);
-    ctx.info('Settings deleted.');
+export function deleteSettings(sheetId: string): SidebarSaveResponse | null {
+  return wrapper('deleteSettings', undefined, ctx => {
+    const sheet = ctx.getWorksheet(sheetId);
+    ctx.deleteSettings(sheetId);
+    ctx.info(`[${sheet?.getName() ?? sheetId})] Settings deleted.`);
+    ctx.loadSettings();
+    return {sheetData: ctx.getSheetData(sheetId)};
   })
 }
 
-export function pollCurrentSheet(): string {
-  return SpreadsheetApp.getActive().getActiveSheet().getName();
+export function pollCurrentSheet(): SidebarPollResponse {
+  const ss = SpreadsheetApp.getActive();
+  return {
+    // NOTE: sheetId is a string, not a number, as object keys are coerced
+    // into strings (or Symbols) and sheetId is often used as a Record key.
+    sheetId: String(ss.getActiveSheet().getSheetId()),
+    version: version,
+    sheetNames: ss.getSheets().map(
+      s => [String(s.getSheetId()), s.getName()] as [string, string]
+    ),
+  }
 }
 
 /** HTTP endpoint. Currently unsued. */

@@ -4,7 +4,7 @@ import { setupFeedsTab, writeLogs, readFeedsTab, updateFeedsTab, LOGS_TAB } from
 import { SHEET_HEADERS } from './common.js';
 import { LOG_LEVEL, LOG_RECORD } from './context.js';
 
-import { buildContext, MockSpreadsheet } from './mocks.js';
+import { buildMocks } from './mocks.js';
 
 const WORKSHEET_NAME = 'Feeds';
 
@@ -12,8 +12,7 @@ const WORKSHEET_NAME = 'Feeds';
 
 describe('sheets.ts unit tests', () => {
   test('setupFeedsTab initializes sheets and populates all expected headers', () => {
-    const sheet = new MockSpreadsheet();
-    const worksheet = sheet.insertSheet(WORKSHEET_NAME);
+    const [_, sheet, worksheet] = buildMocks();
     setupFeedsTab(worksheet);
 
     const tab = sheet.getSheetByName(WORKSHEET_NAME);
@@ -27,7 +26,7 @@ describe('sheets.ts unit tests', () => {
   });
 
   test('writeLogs writes headers and formatted log rows, pruning old logs', () => {
-    const sheet = new MockSpreadsheet();
+    const [_, sheet] = buildMocks();
     
     // One old log (older than 7 days) and one recent log
     const now = Date.now();
@@ -61,9 +60,7 @@ describe('sheets.ts unit tests', () => {
   });
 
   test('readFeedsTab parses feed row items into Feed objects', () => {
-    const ctx = buildContext(WORKSHEET_NAME);
-    const tab = ctx.spreadsheet.getSheetByName(WORKSHEET_NAME)!;
-    ctx.sheetSettings[WORKSHEET_NAME].isSet = true;
+    const [ctx, _, tab] = buildMocks();
     // Headers in row 1, values in row 2 & 3
     tab.getRange(1, 1, 1, 6).setValues([['Index', 'Feed', 'Discord', 'Time', 'GUID', 'Status']]);
     tab.getRange(2, 1, 1, 6).setValues([[1, 'https://example.com/feed1', 'discord-webhook-1', 1234567, 'guid-123', 'ok']]);
@@ -78,14 +75,15 @@ describe('sheets.ts unit tests', () => {
   });
 
   test('updateFeedsTab writes updated cell values back to the specified cell', () => {
-    const sheet = new MockSpreadsheet();
-    const tab = sheet.insertSheet('feeds');
+    const [ctx, _, tab] = buildMocks();
     
     const headers = ['Index', 'Feed', 'Discord', 'Time', 'GUID', 'Status'];
     tab.getRange(1, 1, 1, 6).setValues([headers]);
     tab.getRange(2, 1, 1, 6).setValues([[1, 'https://example.com/feed1', 'discord-webhook-1', 1234567, 'guid-123', 'ok']]);
+    const feeds = readFeedsTab(ctx);
+    assert.strictEqual(feeds.length, 1);
 
-    updateFeedsTab(tab, 1, SHEET_HEADERS.guid, 'new-guid-value', headers);
+    updateFeedsTab(feeds[0], SHEET_HEADERS.guid, 'new-guid-value');
 
     // Verify that the cell (row 2, column index 4 for 'GUID') was updated
     const values = tab.getDataRange().getValues();

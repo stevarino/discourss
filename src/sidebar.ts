@@ -1,22 +1,61 @@
 /** sidebar.js - this is compiled into sidebar.html during the build step */
 
-import { CELL_VALUE, DEFAULT_APP_NAME, SidebarData } from "./common.js";
+import { Button, ButtonSet, CELL_VALUE, DEFAULT_APP_NAME, SidebarData, SidebarPollResponse, SidebarSaveRequest, SidebarSaveResponse, SidebarSheetsData as SidebarSheetData } from "./common.js";
+import { LOGS_TAB } from "./sheets.js";
 
-interface GoogleScriptRun {
+type GoogleScriptRun = {
   withSuccessHandler<T=unknown>(func: (val: T) => void): GoogleScriptRun,
   withFailureHandler(error: unknown): GoogleScriptRun,
-  run(): void,
-  setup(sheet: string): void,
-  toggleTimer(): boolean,
-  getSidebarData(): SidebarData,
-  setSettings(sheet: string, settings: [string, CELL_VALUE][]): string[] | null,
-  deleteSettings(sheet: string): void,
-  pollCurrentSheet(): string,
-}
+} & {[key: string]: (...arg: any[]) => any}
+
+type Fields = HTMLInputElement | HTMLSelectElement;
 
 declare global {
   const google: {script: {run: GoogleScriptRun}}
 }
+
+
+function unexpectedError(msg: any) {
+  safeError(`An unexpected error occured:\n${msg}`);
+  return null;
+}
+
+function safeError(msg: any) {
+  DISCOURSS_BACKEND.alert(msg).catch((e => {
+    const also = '\n\nFurther while handling the above error, the following error occured:\n';
+    alert(`${msg}${also}${e}`);
+  }));
+}
+
+
+// creates templated functions to call the backend utilizing a Promise
+// rather than functions. <T> is a tuple of arguments for the function
+// call and <U> is the return type.
+function buildBackendCall<T extends unknown[], U=unknown>(name: string) {
+  return (...args: T) => {
+    return new Promise<U>((res, rej) => {
+      const func = google.script.run.withSuccessHandler(res).withFailureHandler(rej)[name];
+      if (!func) {
+        throw new Error(`Unrecognized server function: "${name}"`);
+      }
+      func(...args);
+    }).catch(unexpectedError);
+  }
+}
+
+const DISCOURSS_BACKEND = {
+  run: buildBackendCall('run'),
+  toggleTimer: buildBackendCall<[], boolean>('toggleTimer'),
+  getSidebarData: buildBackendCall<[], SidebarData>('getSidebarData'),
+  setSettings: buildBackendCall<[req: SidebarSaveRequest], SidebarSaveResponse>('setSettings'),
+  deleteSettings: buildBackendCall<[sheetId: string], SidebarSaveResponse>('deleteSettings'),
+  pollCurrentSheet: buildBackendCall<[], SidebarPollResponse>('pollCurrentSheet'),
+  alert: buildBackendCall<[msg: string, buttons?: ButtonSet], Button>('alert'),
+}
+
+const DISCOURSS_STATE = {
+  sidebarData: undefined as SidebarData | undefined,
+};
 
 function swapButton(btn: HTMLInputElement, value?: string) {
   if (value) {
@@ -39,23 +78,29 @@ function getById<T=HTMLElement>(id: string): T {
   return el as T;
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   function log(...args: any) {
     console.log(DEFAULT_APP_NAME, ...args);
   }
-
-  // const STATE = {
-  //   sidebarData: undefined as SidebarData|undefined
-  // }
-
   const settings = getById('settings')!;
   const sheetNameLabel = getById('sheetName');
-  const setupBtn = getById<HTMLInputElement>('setupBtn');
+  const versionLabel = getById('version');
   const runBtn = getById<HTMLInputElement>('runBtn');
   const timerBtn  = getById<HTMLInputElement>('timerBtn');
   const saveBtn = getById<HTMLInputElement>('saveBtn');
   const deleteBtn = getById<HTMLInputElement>('deleteBtn');
   const refreshBtn = getById<HTMLInputElement>('refreshBtn');
+
+  function renderSheetName(sheet: SidebarSheetData) {
+    if (sheet.name == LOGS_TAB) {
+      sheetNameLabel.innerText = 'Viewing Logs';
+    } else if (sheet.isSet) {
+      sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
+    } else {
+      sheetNameLabel.innerText = `Setup ${sheet.name}`;
+    }     
+  }
+
 
   function timerButton(state: boolean) {
     timerBtn.value = state ? 'Disable Timer' : 'Enable Timer';
@@ -66,98 +111,98 @@ document.addEventListener("DOMContentLoaded", () => {
     alert(e!.toString());
   }
 
-  function onLoad(data: SidebarData) {
-    log(`Loaded:`, data);
-    const STATE = {sidebarData:  data};
+  function onLoad(sidebarData: SidebarData|null) {
+    if (!sidebarData) {
+      document.getElementById('content')?.append(
+        'An error has occurred. Please reload the sidebar.');
+      return;
+    }
+    log(`Loaded:`, sidebarData);
+    DISCOURSS_STATE.sidebarData = sidebarData;
 
-    function renderSidebar() {
-      const data = STATE.sidebarData.sheets[STATE.sidebarData.active];
-      if (data === undefined) {
-        document.body.classList.remove('loaded')
-        refreshData();
-        return;
+    async function renderSidebar() {
+      let sidebarData = DISCOURSS_STATE.sidebarData!;
+      let sheet = sidebarData.sheets[sidebarData.sheetId];
+      // new spreadsheet?
+      if (sheet === undefined) {
+        document.body.classList.remove('loaded');
+        let sidebarData = await DISCOURSS_BACKEND.getSidebarData();
+        if (!sidebarData) {
+          document.body.classList.add('loaded');
+          return;
+        }
+        DISCOURSS_STATE.sidebarData = sidebarData;
+        sheet = sidebarData.sheets[sidebarData.sheetId];
       }
-      if (data.isSet) {
-        sheetNameLabel.innerText = `Sheet ${STATE.sidebarData.active}`;
-        saveBtn.value = 'Save'
-        deleteBtn.style.display = 'block';
-        settings.querySelector('div')!.style.display = 'block'
-      } else {
-        sheetNameLabel.innerText = `Setup ${STATE.sidebarData.active}`;
-        saveBtn.value = 'Create';
+      renderSheetName(sheet);
+      if (sheet.name === LOGS_TAB) {
+        // Logs is read-only
+        settings.style.display = 'none';
+        saveBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
-        settings.querySelector('div')!.style.display = 'none'
-      }
-      settings.innerHTML = '';
-      for (const [name, value, _] of data?.settings ?? []) {
-        const h2 = document.createElement('h2');
-        h2.innerText = name;
-        settings.appendChild(h2);
-        if (typeof value === 'boolean') {
-          const select = document.createElement('select');
-          select.classList.add();
-          select.name = name;
-          const optionTrue = document.createElement('option');
-          optionTrue.innerText = 'True';
-          optionTrue.value = 'true';
-          optionTrue.selected = value;
-          select.appendChild(optionTrue);
-          const optionFalse = document.createElement('option');
-          optionFalse.innerText = 'False';
-          optionFalse.value = 'false';
-          optionFalse.selected = !value;
-          select.appendChild(optionFalse);
-          settings.appendChild(select);
-          continue;
+      } else {
+        settings.style.display = 'flex';
+        saveBtn.style.display = 'block';
+        deleteBtn.style.display = 'block';
+        if (sheet.isSet) {
+          // editing a sheet record
+          saveBtn.value = 'Save'
+          deleteBtn.style.display = 'block';
+          settings.querySelector('div')!.style.display = 'flex'
+        } else {
+          // creating a sheet record
+          saveBtn.value = 'Create';
+          deleteBtn.style.display = 'none';
+          settings.querySelector('div')!.style.display = 'none'
         }
-        const input = document.createElement('input');
-        input.name = name;
-        input.value = String(value);
-        if (typeof value === 'number') {
-          input.type = 'number';
+        for (const [k, v] of sheet?.settings ?? []) {
+          const els = Array.from(document.getElementsByName(k)) as Fields[];
+          for (const el of els) {
+            el.value = String(v);
+          }
         }
-        settings.appendChild(input);
       }
       document.body.classList.add('loaded');
     }
 
-    document.getElementById('version')!.innerText = data.version;
-    timerButton(data.timer);
+    versionLabel.innerText = sidebarData.version;
+    timerButton(sidebarData.timer);
 
-    setupBtn.addEventListener('click', () => {
-      swapButton(setupBtn, 'Setting Up...');
-      google.script.run.withSuccessHandler(() => {
-        swapButton(setupBtn);
-      }).setup(STATE.sidebarData.active);
-    });
-
-    runBtn.addEventListener('click', () => {
+    runBtn.addEventListener('click', async () => {
       swapButton(runBtn, 'Running...');
-      google.script.run.withSuccessHandler(() => {
-        swapButton(runBtn);
-      }).run();
+      await DISCOURSS_BACKEND.run().catch(unexpectedError);
+      swapButton(runBtn);
     });
 
-    timerBtn.addEventListener('click', () => {
+    timerBtn.addEventListener('click', async () => {
       swapButton(timerBtn, '...');
-      google.script.run.withSuccessHandler((state: boolean) => {
-        timerButton(state);
-      }).toggleTimer();
+      const state = await DISCOURSS_BACKEND.toggleTimer().catch(unexpectedError);
+      if (state !== null) {
+        timerButton(state ?? true);
+      } else {
+        swapButton(timerBtn, 'Toggle Timer State');
+      }
     });
 
-    deleteBtn.addEventListener('click', () => {
+    deleteBtn.addEventListener('click', async () => {
+      const sheet = DISCOURSS_STATE.sidebarData!.sheetId;
       swapButton(deleteBtn, 'Deleting...');
-      google.script.run.withSuccessHandler(() => {
-        swapButton(deleteBtn);
-      }).deleteSettings(STATE.sidebarData!.active);
+      const res = await DISCOURSS_BACKEND.deleteSettings(sheet)
+      swapButton(deleteBtn);
+      if (!res) return;
+      DISCOURSS_STATE.sidebarData!.sheets[sheet] = res.sheetData!;
+      if (DISCOURSS_STATE.sidebarData?.sheetId === sheet) {
+        await renderSidebar();
+      }
     });
 
-    function refreshData() {
-      google.script.run.withSuccessHandler((data: SidebarData) => {
-        swapButton(refreshBtn);
-        STATE.sidebarData = data;
-        renderSidebar();
-      }).getSidebarData();
+    async function refreshData() {
+      const sidebarData = await DISCOURSS_BACKEND.getSidebarData();
+      if (sidebarData) {
+        DISCOURSS_STATE.sidebarData = sidebarData
+      }
+      swapButton(refreshBtn);
+      await renderSidebar();
     }
 
     refreshBtn.addEventListener('click', () => {
@@ -165,58 +210,79 @@ document.addEventListener("DOMContentLoaded", () => {
       refreshData();
     });
 
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
       swapButton(saveBtn, 'Saving...');
+      const sidebarData = DISCOURSS_STATE.sidebarData!;
       
-      const values: [string, CELL_VALUE][] = [];
-      for (let child of Array.from(settings.children)) {
-        const tag = child.tagName.toLowerCase();
-        if (tag === 'input') {
-          const input = child as HTMLInputElement;
-          if (input.getAttribute('type') === 'number') {
-            values.push([input.name, parseInt(input.value)]);
-          } else {
-            values.push([input.name, input.value]);
-          }
-        } else if (tag === 'select') {
-          const select = child as HTMLInputElement;
-          values.push([select.name, select.value === 'true']);
+      const fields: [string, CELL_VALUE][] = [];
+      const fieldElements = Array.from(
+        document.querySelectorAll('*[name]')) as Fields[];
+      for (const child of fieldElements) {
+        let value: CELL_VALUE = child.value;
+        const datatype = child.getAttribute('type') ?? child.dataset['type'];
+        if (datatype === 'number') {
+          value = parseInt(value)
+        } else if (datatype === 'boolean') {
+          value = value === 'true';
         }
+        fields.push([child.name, value]);
       }
 
-      google.script.run.withSuccessHandler((errors: string[]) => {
-        swapButton(saveBtn);
-        if (errors?.length) {
-          console.error('Errors occurred during saving: ', JSON.stringify(errors));
-        }
-        refreshData();
-      }).setSettings(STATE.sidebarData!.active, values);
+      const saveRequest: SidebarSaveRequest = {
+        isNew: sidebarData.sheets[sidebarData.sheetId].isSet === false,
+        sheetId: sidebarData.sheetId,
+        fields: fields,
+      }
+
+      const res = await DISCOURSS_BACKEND.setSettings(saveRequest);
+      swapButton(saveBtn);
+      if (!res) {
+        DISCOURSS_BACKEND.alert('Failed to save. Please try again.');
+        return;
+      }
+      if (!res.sheetData) {
+        return;
+      }
+      const sheetId = res.sheetData.sheetId;
+      DISCOURSS_STATE.sidebarData!.sheets[sheetId] = res.sheetData;
+      if (sheetId === DISCOURSS_STATE.sidebarData?.sheetId) {
+        await renderSidebar();
+      }
     });
 
-    function refresh() {
-      console.log(new Date(), 'refreshing: ');
-      google.script.run.withSuccessHandler((sheet: string) => {
-        window.setTimeout(refresh, 100);
-        if (sheet !== STATE.sidebarData.active) {
-          STATE.sidebarData.active = sheet;
-          renderSidebar();
+    async function refresh() {
+      try {
+        const res = await DISCOURSS_BACKEND.pollCurrentSheet();
+        if (res === null) return;
+        versionLabel.innerText = res.version;
+        for (const [sheetId, sheetName] of res.sheetNames) {
+          const sheet = DISCOURSS_STATE.sidebarData?.sheets[sheetId];
+          if (sheet && sheet.name != sheetName) {
+            sheet.name = sheetName;
+            if (sheet.sheetId === DISCOURSS_STATE.sidebarData?.sheetId) {
+              renderSheetName(sheet);
+            }
+          }
         }
-        console.log(new Date(), 'refresh returned: ', sheet);
-      }).withFailureHandler(() => {
+        if (res.sheetId !== DISCOURSS_STATE.sidebarData!.sheetId) {
+          DISCOURSS_STATE.sidebarData!.sheetId = res.sheetId;
+          await renderSidebar();
+        }
+      } finally {
         window.setTimeout(refresh, 100);
-        console.log(new Date(), 'refresh failed');
-      }).pollCurrentSheet();
+      }
     }
 
     refresh();
-    renderSidebar();
+    renderSidebar().catch(unexpectedError);
   }
 
   log('loading');
-  google.script.run
-    .withSuccessHandler(onLoad)
-    .withFailureHandler(failureHandler)
-    .getSidebarData();
+  try {
+    onLoad(await DISCOURSS_BACKEND.getSidebarData());
+  } catch (e) {
+    failureHandler(e);
+  }
 });
 
 console.log(`${DEFAULT_APP_NAME} online`);

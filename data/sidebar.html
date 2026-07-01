@@ -12,14 +12,19 @@
     body {
       background-color: #fff;
     }
-    body > content { display: none; }
+    body > content {
+      display: none; 
+      flex-direction: column;
+    }
     body.loaded {
       > h1 { display: none; }
-      > content { display: block; }
+      > content { display: flex; }
     }
-    h1 {
+    h1, hr {
       font-size: 1.25em;
       font-family: "Rosarivo", cursive;
+      border: 0;
+      margin: 0.67em 0;
       border-bottom: 3px solid transparent;
       border-image: linear-gradient(to right, var(--orange), var(--blurple)) 1;
     }
@@ -28,10 +33,17 @@
       font-family: "Rosarivo", cursive;
       font-size: 1em;
     }
+    #settings, #settings div {
+      display: flex;
+      flex-direction: column;
+    }
     input[type="button"] {
       cursor: pointer;
       border-width: 1px 2px 2px 1px;
       margin-right: 5px;
+      background-color: var(--blurple);
+      color: #fff;
+      font-weight: bold;
     } 
     input, select {
       box-sizing: border-box;
@@ -41,7 +53,8 @@
       font-size: 1.1em;
       padding: 0.2em;
       width: stretch;
-      margin-right: 1em;
+      margin: 0 1em 0.5em 0.5em;
+      flex-grow: 1;
     }
     select {
       padding-right: 0.25em;
@@ -55,8 +68,8 @@
 <h1>Loading...</h1>
 <content>
   <h1>Spreadsheet Actions</h1>
-  <p><input type="button" value="Run" id="runBtn" /></p>
-  <p><input type="button" value="Timer" id="timerBtn" /></p>
+  <input type="button" value="Run" id="runBtn" />
+  <input type="button" value="Timer" id="timerBtn" />
   <h1><span id="sheetName"></span></h1>
   <div id="settings">
     <h2>webhook</h2>
@@ -75,18 +88,23 @@
       <h2>feed_frequency</h2>
       <input type="number" name="feed_frequency" />
       <h2>image_format</h2>
-      <input type="text" name="image_format" />
+      <select name="image_format">
+        <option value="image">Image</option>
+        <option value="thumbnail">thumbnail</option>
+        <option value="none">None</option>
+      </select>
       <h2>bundle</h2>
-      <select name="bundle">
+      <select name="bundle" data-type="boolean">
         <option value="true">True</option>
         <option value="false" selected="selected">False</option>
       </select>
     </div>
   </div>
-  <p><input type="button" value="Save" id="saveBtn" /></p>
-  <p><input type="button" value="Delete Settings" id="deleteBtn" class="nonnew" /></p>
+  <hr />
+  <input type="button" value="Save" id="saveBtn" />
+  <input type="button" value="Delete Settings" id="deleteBtn" class="nonnew" />
   <p>Version: <span id="version"></span></p>
-  <p><input type="button" value="Refresh Settings" id="refreshBtn" /></p>
+  <input type="button" value="Refresh Settings" id="refreshBtn" />
 </content>
 
 <script>

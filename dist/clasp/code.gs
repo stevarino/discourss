@@ -26,6 +26,8 @@
  */
 
 
+const version = '1-782-872-582-997';
+
 /**
  * common.js - common interfaces, types, and constants.
  */
@@ -37,6 +39,10 @@ function truthy(test, other) {
     }
     return other;
 }
+const CONFIG = {
+    LOG_TO_STDERR: false,
+    LOG_DEBUG: false,
+};
 var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";
@@ -78,19 +84,44 @@ const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, 
  */
 /** Fetcher object for use in context. */
 class Fetcher {
-    fetch(url, req) {
-        return UrlFetchApp.fetch(url, req);
+    constructor() {
+        var _a;
+        this.default_params = {
+            muteHttpExceptions: true,
+            timeoutSeconds: 5,
+        };
+        this.default_http_headers = {
+            "User-Agent": `DiscouRSS ${version} ${(_a = SpreadsheetApp === null || SpreadsheetApp === void 0 ? void 0 : SpreadsheetApp.getActive()) === null || _a === void 0 ? void 0 : _a.getId()} - https://discourss.stevarino.com`,
+        };
+    }
+    fetch(url, req, log) {
+        var _a, _b;
+        log = log || (() => { });
+        const headers = Object.assign({}, this.default_http_headers, (_a = req.headers) !== null && _a !== void 0 ? _a : {});
+        req = Object.assign({}, this.default_params, req, { headers });
+        if (CONFIG.LOG_DEBUG) {
+            log(`Fetching ${url} - payload(${(_b = req.payload) === null || _b === void 0 ? void 0 : _b.length})`);
+        }
+        const res = UrlFetchApp.fetch(url, req);
+        if (CONFIG.LOG_DEBUG) {
+            const bytes = [0, ...res.getBlob().getBytes()].reduce((a, b) => a + b);
+            log(`Response: ${res.getResponseCode()} (${bytes} bytes)`);
+        }
+        return res;
     }
 }
 
 /**
  * context.js - Context and Logging infrastructure.
  */
+/** Purge logs every 10s */
+const PURGE_INTERVAL = 5000;
 var LOG_LEVEL;
 (function (LOG_LEVEL) {
     LOG_LEVEL[LOG_LEVEL["ERROR"] = 0] = "ERROR";
     LOG_LEVEL[LOG_LEVEL["WARNING"] = 1] = "WARNING";
     LOG_LEVEL[LOG_LEVEL["INFO"] = 2] = "INFO";
+    LOG_LEVEL[LOG_LEVEL["DEBUG"] = 3] = "DEBUG";
 })(LOG_LEVEL || (LOG_LEVEL = {}));
 function errorToString(e) {
     // LOG_RECORD
@@ -109,15 +140,36 @@ function errorToLogRecord(e, level) {
     return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
 }
 function log(logs, message, level) {
+    if (level === LOG_LEVEL.DEBUG && !CONFIG.LOG_DEBUG) {
+        return;
+    }
     if (!Array.isArray(message)) {
         message = errorToLogRecord(message, level !== null && level !== void 0 ? level : LOG_LEVEL.INFO);
+    }
+    if (CONFIG.LOG_TO_STDERR) {
+        switch (message[1]) {
+            case LOG_LEVEL.ERROR:
+                console.error(LOG_LEVEL[message[1]], message[2]);
+                break;
+            case LOG_LEVEL.WARNING:
+                console.warn(LOG_LEVEL[message[1]], message[2]);
+                break;
+            case LOG_LEVEL.INFO:
+                console.info(LOG_LEVEL[message[1]], message[2]);
+                break;
+            case LOG_LEVEL.DEBUG:
+                // no console.debug in AppsScript
+                console.log(LOG_LEVEL[message[1]], message[2]);
+                break;
+            default:
+                console.info(LOG_LEVEL[message[1]], message[2]);
+        }
     }
     logs.push(message);
 }
 class Setting {
-    constructor(value, help, validators) {
+    constructor(value, validators) {
         this.value = value;
-        this.help = help;
         this.validators = validators !== null && validators !== void 0 ? validators : [];
     }
     toString() {
@@ -150,27 +202,30 @@ class Setting {
         return undefined;
     }
 }
+// https://discordapp.com/api/webhooks/.../...
+// https://discord.com/api/webhooks/.../...
+const DISCORD_URL_RE = new RegExp('^https://discord(app)?\\.com/api/webhooks/.*');
 /** Settings specific to a single sheet. */
 class SheetSettings {
     constructor(worksheet) {
         this.feedHeaders = [];
         this.isSet = false;
         this.worksheet = worksheet;
-        this.webhook = new Setting('', 'Discord channel webhook.', [
+        this.webhook = new Setting('', [
             [v => v !== '', 'Webhook must be set.'],
-            [v => String(v).startsWith('https://discord.com/api/webhooks'), 'Invalid discord hook URL'],
+            [v => DISCORD_URL_RE.test(String(v)), 'Invalid discord hook URL'],
         ]);
-        this.appname = new Setting('', 'The Discord Bot name.');
-        this.avatar_url = new Setting('', 'URL to an image used for the Discord Bot.');
-        this.signature = new Setting('%s Posted:', 'The signature used for the title. "%s" is replaced with the discord user.');
-        this.feed_pattern = new Setting('^https://', 'Regular expression that individual feeds are validated against.');
-        this.feed_limit = new Setting(5, 'How many feeds to process per run.');
-        this.feed_frequency = new Setting(3600, 'How long a single feed will be scanned (in seconds).');
-        this.image_format = new Setting('image', 'How to attach the image from the feed item (image|thumbnail|none)', [
+        this.appname = new Setting('');
+        this.avatar_url = new Setting('');
+        this.signature = new Setting('%s Posted:');
+        this.feed_pattern = new Setting('^https://');
+        this.feed_limit = new Setting(5);
+        this.feed_frequency = new Setting(3600);
+        this.image_format = new Setting('image', [
             [(v) => ["image", "thumbnail", "none"].includes(v),
                 'Value must be "image", "thumbnail", or "none".'],
         ]);
-        this.bundle = new Setting(false, 'Whether to bundle all feed items as a single message to discord.');
+        this.bundle = new Setting(false);
         this.feedPatternRe = new RegExp(this.feed_pattern.value);
         this.settings = Object.fromEntries(Object.entries(this).filter(([_, v]) => v instanceof Setting));
         this.feedCount = this.feed_limit.value;
@@ -182,7 +237,6 @@ class SheetSettings {
         if (!json) {
             return;
         }
-        console.log('Loading settings: ', json);
         const settings = JSON.parse(json);
         const errors = this.validateSettings(settings);
         if (errors.length) {
@@ -197,13 +251,9 @@ class SheetSettings {
         return;
     }
     getSettings() {
-        const settings = [];
-        for (const [key, val] of Object.entries(this)) {
-            if (val instanceof Setting) {
-                settings.push([key, val.value, val.help]);
-            }
-        }
-        return settings;
+        return Object.entries(this)
+            .filter(([_, v]) => v instanceof Setting)
+            .map(([k, v]) => [k, v.value]);
     }
     validateSettings(record) {
         const errors = [];
@@ -248,10 +298,10 @@ class Context {
     constructor(spreadsheet, logs) {
         this.sheetSettings = {};
         this.logs = [];
-        this.debug = false;
         this.defaults = [];
         this.fetcher = new Fetcher();
         this.now = new Date().getTime();
+        this.purgedAt = new Date().getTime();
         this.spreadsheet = spreadsheet;
         if (logs !== undefined) {
             this.logs = logs;
@@ -261,27 +311,44 @@ class Context {
     }
     loadSettings() {
         for (const sheet of this.spreadsheet.getSheets()) {
-            this.sheetSettings[sheet.getName()] = new SheetSettings(sheet);
+            this.sheetSettings[sheet.getSheetId()] = new SheetSettings(sheet);
         }
     }
     getSettings() {
         const settings = {};
-        for (const [name, value] of Object.entries(this.sheetSettings)) {
-            settings[name] = {
-                name: name,
+        for (const [sheetId, value] of Object.entries(this.sheetSettings)) {
+            settings[sheetId] = {
+                sheetId: sheetId,
+                name: value.worksheet.getName(),
                 isSet: value.isSet,
                 settings: value.getSettings(),
             };
         }
         return settings;
     }
-    setSettings(sheet, values) {
-        var _a, _b;
-        return (_b = (_a = this.sheetSettings[sheet]) === null || _a === void 0 ? void 0 : _a.setSettings(values)) !== null && _b !== void 0 ? _b : [`Unrecognized sheet: "${sheet}"`];
+    getSheetData(sheetId) {
+        const record = this.sheetSettings[sheetId];
+        if (!record) {
+            throw new Error(`Sheet "${sheetId}" not found.`);
+        }
+        return {
+            sheetId: sheetId,
+            name: record.worksheet.getName(),
+            isSet: record.isSet,
+            settings: record.getSettings(),
+        };
     }
-    deleteSettings(sheet) {
+    getWorksheet(sheetId) {
         var _a;
-        (_a = this.sheetSettings[sheet]) === null || _a === void 0 ? void 0 : _a.deleteSettings();
+        return (_a = this.sheetSettings[sheetId]) === null || _a === void 0 ? void 0 : _a.worksheet;
+    }
+    setSettings(sheetId, values) {
+        var _a, _b;
+        return (_b = (_a = this.sheetSettings[sheetId]) === null || _a === void 0 ? void 0 : _a.setSettings(values)) !== null && _b !== void 0 ? _b : [`Unrecognized sheet: "${sheetId}"`];
+    }
+    deleteSettings(sheetId) {
+        var _a;
+        (_a = this.sheetSettings[sheetId]) === null || _a === void 0 ? void 0 : _a.deleteSettings();
     }
     reset(spreadsheet) {
         if (spreadsheet) {
@@ -290,23 +357,16 @@ class Context {
         this.sheetSettings = {};
         this.loadSettings();
     }
-    // validate(): string[] {
-    //   const errors = [];
-    //   for (const [key, val] of Object.entries(this)) {
-    //     if (val instanceof Setting) {
-    //       const error = val.validate();
-    //       if (error) {
-    //         errors.push(`${key}: ${error}`);
-    //       }
-    //     }
-    //   }
-    //   return errors;
-    // }
     fetch(url, params) {
-        return this.fetcher.fetch(url, params);
+        return this.fetcher.fetch(url, params !== null && params !== void 0 ? params : {}, (msg) => this.log(LOG_LEVEL.DEBUG, msg));
     }
     log(level, message) {
-        this.logs.push([new Date().getTime(), level, message]);
+        log(this.logs, message, level);
+        if (new Date().getTime() - this.purgedAt > PURGE_INTERVAL) {
+            if (this.logger)
+                this.logger(this.logs);
+            this.logs.length = 0;
+        }
     }
     error(message) {
         log(this.logs, message, LOG_LEVEL.ERROR);
@@ -316,6 +376,9 @@ class Context {
     }
     info(message) {
         log(this.logs, message, LOG_LEVEL.INFO);
+    }
+    debug(message) {
+        log(this.logs, message, LOG_LEVEL.DEBUG);
     }
 }
 
@@ -384,7 +447,9 @@ function setupFeedsTab(worksheet) {
 /**
  * Given an array of logs, inserts the logs into the `logs` tab.
  */
-function writeLogs(sheet, logs) {
+function writeLogs(sheet, logs, logger) {
+    if (!logger)
+        logger = () => { };
     const header = ['epoch', 'DateTime (UTC)', 'Level', 'Message'];
     try {
         // let rows: CELL_VALUE[][] = [['epoch', 'DateTime (UTC)', 'Level', 'Message']];
@@ -423,7 +488,8 @@ function writeLogs(sheet, logs) {
         tab.getRange(1, colCount, newRows.length, 1).setWrap(true).setVerticalAlignment('top');
     }
     catch (e) {
-        console.error(errorToString(e));
+        // possibly no context
+        logger(errorToString(e));
     }
 }
 function getFeedColumn(feedHeaders, header) {
@@ -480,9 +546,10 @@ function readFeedsTab(ctx) {
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
 }
-function updateFeedsTab(tab, row, column, value, feedHeaders) {
-    const col = getFeedColumn(feedHeaders, column.label);
-    tab.getRange(row + 1, col + 1, 1, 1).setValues([[value]]);
+function updateFeedsTab(feed, column, value) {
+    var _a, _b;
+    const col = getFeedColumn(feed.settings.feedHeaders, column.label);
+    (_b = (_a = feed.settings.worksheet) === null || _a === void 0 ? void 0 : _a.getRange(feed.index + 1, col + 1, 1, 1)) === null || _b === void 0 ? void 0 : _b.setValues([[value]]);
     return;
 }
 
@@ -676,7 +743,7 @@ function findDomain(embeds) {
     }
     return (_a = set.values().next().value) !== null && _a !== void 0 ? _a : -1;
 }
-function buildEmbed(ctx, settings, xml) {
+function buildEmbed(_, settings, xml) {
     var _a, _b;
     const html = Cheerio.load(xml.getChild('description').getValue());
     const embed = {
@@ -685,9 +752,6 @@ function buildEmbed(ctx, settings, xml) {
         description: nodeToMarkdown(html),
         fields: [],
     };
-    if (ctx.debug) {
-        embed.fields.push({ name: 'guid', value: xml.getChild('guid').getText() });
-    }
     const image = html('img').attr('src');
     if (image) {
         if (settings.image_format.value == 'image') {
@@ -697,6 +761,7 @@ function buildEmbed(ctx, settings, xml) {
             embed.thumbnail = { url: image };
         }
     }
+    // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
     return embed;
 }
 /**
@@ -723,6 +788,9 @@ function sendDiscordMessage(embeds, feed, ctx) {
     if (signature && signature.includes('%s')) {
         message.content = signature.replace('%s', message.content);
     }
+    else if (signature) {
+        message.content = signature;
+    }
     // if we're not bundling, copy message for each embed.
     const messages = settings.bundle.value ? [message] :
         message.embeds.map(e => { return { ...message, embeds: [e] }; });
@@ -730,13 +798,13 @@ function sendDiscordMessage(embeds, feed, ctx) {
         const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
         msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
         msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
+        // ctx.debug(`payload: ${JSON.stringify(msg)}`)
         const response = ctx.fetch(settings.webhook.value, {
             method: 'post',
             payload: JSON.stringify(msg),
-            muteHttpExceptions: true,
             contentType: "application/json"
         });
-        if (response.getResponseCode() != 204) {
+        if (!response.getResponseCode().toString().startsWith('2')) {
             throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
         }
     }
@@ -756,14 +824,16 @@ function processFeed(feed, ctx) {
         return { status: STATUS.SKIP, status_text: '' };
     }
     ctx.info(`${feed.feed} - fetching`);
-    const res = ctx.fetch(feed.feed, { muteHttpExceptions: true });
+    const res = ctx.fetch(feed.feed);
     if (!String(res.getResponseCode()).startsWith('2')) {
         return {
             status: STATUS.ERROR,
             status_text: `HTTP Response code: ${res.getResponseCode()}`
         };
     }
-    return parseRssXml(res.getContentText(), feed, ctx);
+    const text = res.getContentText();
+    ctx.debug(`Received ${text.length} bytes`);
+    return parseRssXml(text, feed, ctx);
 }
 function parseRssXml(content, feed, ctx) {
     var _a;
@@ -784,12 +854,14 @@ function parseRssXml(content, feed, ctx) {
     let foundLast = false;
     let status = 'ok';
     const items = channel.getChildren("item");
+    ctx.debug(`Loaded RSS: ${items.length} items`);
     if (items.length === 0) {
         firstGuid = '0';
         status = 'no items';
     }
     for (const item of items) {
         const guid = (_a = item.getChild('guid')) === null || _a === void 0 ? void 0 : _a.getText();
+        // ctx.debug(`Found item: ${guid}`);
         if (!guid) {
             ctx.warn(`GUID not specified on feed item. Skipping.`);
             continue;
@@ -813,6 +885,7 @@ function parseRssXml(content, feed, ctx) {
     else {
         status = `found ${msg.embeds.length}`;
     }
+    ctx.debug(`Processed ${msg.embeds.length} items`);
     return {
         status: STATUS.OK,
         status_text: status,
@@ -821,12 +894,11 @@ function parseRssXml(content, feed, ctx) {
     };
 }
 
-const version = '1-782-687-522-610';
-
 /**
  * index.js - main entry point for code
  */
-const TIMER_TRIGGER = DEFAULT_APP_NAME + 'Timer';
+CONFIG.LOG_TO_STDERR = true;
+CONFIG.LOG_DEBUG = false;
 /** A common execution wrapper. Handles context and logging. */
 function wrapper(method, ctx, func) {
     const spreadsheet = SpreadsheetApp.getActive();
@@ -835,15 +907,19 @@ function wrapper(method, ctx, func) {
         if (!ctx) {
             ctx = new Context(spreadsheet, logs);
         }
-        ctx.info(`--- START ${method} (${version}) ---`);
+        ctx.logger = (logs) => writeLogs(spreadsheet, logs, (log) => ctx.error(log));
+        if (method) {
+            ctx.info(`--- START ${method} (${version}) ---`);
+        }
         return func(ctx);
     }
     catch (e) {
         log(logs, errorToString(e), LOG_LEVEL.ERROR);
     }
     finally {
-        if (logs.length > 1) {
-            writeLogs(spreadsheet, logs);
+        log(logs, 'Finished', LOG_LEVEL.DEBUG);
+        if (logs.length) {
+            writeLogs(spreadsheet, logs, console.error);
         }
     }
     return null;
@@ -864,7 +940,10 @@ function execute(ctx) {
         }
         catch (e) {
             // even if we fail we want to count it.
-            ctx.warn(errorToString(e));
+            const err = errorToString(e);
+            ctx.warn(err);
+            updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
+            updateFeedsTab(feed, SHEET_HEADERS.status, `ERROR: ${err}`);
             continue;
         }
         if (result.status === STATUS.SKIP) {
@@ -873,15 +952,11 @@ function execute(ctx) {
         if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
             sendDiscordMessage(result.message.embeds, feed, ctx);
         }
-        // update feed state in spreadsheet
-        const update = (h, v) => {
-            updateFeedsTab(sheet, feed.index, h, v, feed.settings.feedHeaders);
-        };
-        update(SHEET_HEADERS.time, ctx.now);
+        updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
         if (result.guid) {
-            update(SHEET_HEADERS.guid, result.guid);
+            updateFeedsTab(feed, SHEET_HEADERS.guid, result.guid);
         }
-        update(SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
+        updateFeedsTab(feed, SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
         ctx.info(`Updated row ${sheet.getName()}:${feed.index + 1} ${STATUS[result.status]}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
         feed.settings.feedCount -= 1;
         if (feed.settings.feedCount === 0) {
@@ -897,15 +972,6 @@ function onOpen() {
         .addItem('Show sidebar', 'showSidebar')
         .addToUi();
 }
-/** User clicks "setup" on sidebar. Sets up initial table. */
-function setup(worksheet) {
-    wrapper('setup', undefined, (ctx) => {
-        const sheet = ctx.spreadsheet.getSheetByName(worksheet);
-        if (sheet) {
-            setupFeedsTab(sheet);
-        }
-    });
-}
 /** Ran when user clicks "Run" in the sidebar. */
 function run(ctx) {
     wrapper('run', ctx, (ctx) => {
@@ -913,18 +979,35 @@ function run(ctx) {
     });
 }
 /** User submits settings from sidebar. Returns errors. */
-function setSettings(sheet, data) {
-    var _a;
-    return (_a = wrapper('setSettings', undefined, (ctx) => {
-        const errors = ctx.setSettings(sheet, data);
+function setSettings(req) {
+    return wrapper('setSettings', undefined, (ctx) => {
+        const sheet = ctx.spreadsheet.getSheetById(parseInt(req.sheetId));
+        if (!sheet) {
+            alert('ERROR: Sheet not found.');
+            return {};
+        }
+        if (req.isNew) {
+            if (!sheet)
+                return { errors: ['Could not find sheet'] };
+            if (sheet.getLastRow()) {
+                const res = alert(`Worksheet ${sheet.getName()} is not empty. Clear it now?`, 'YES_NO_CANCEL');
+                if (res === 'CANCEL')
+                    return {};
+                if (res === 'YES')
+                    sheet.clear();
+            }
+            setupFeedsTab(sheet);
+        }
+        const errors = ctx.setSettings(req.sheetId, req.fields);
         if (errors === null || errors === void 0 ? void 0 : errors.length) {
             alert(`Errors occurred during saving:\n\n • ${errors.join('\n • ')}`);
+            return {};
         }
-        else {
-            ctx.info('Settings updated');
-        }
-        return errors;
-    })) !== null && _a !== void 0 ? _a : [];
+        ctx.info(`[${sheet.getName()}${req.isNew ? ' (new)' : ''}] Settings updated.`);
+        return {
+            sheetData: ctx.getSheetData(req.sheetId),
+        };
+    });
 }
 /** Show the sidebar, duh. :P */
 function showSidebar() {
@@ -932,9 +1015,11 @@ function showSidebar() {
 }
 /** Sidebar has requested data. */
 function getSidebarData() {
-    return wrapper('getSidebarData', undefined, (ctx) => {
+    return wrapper('', undefined, (ctx) => {
         return {
-            active: SpreadsheetApp.getActive().getActiveSheet().getName(),
+            // NOTE: sheetId is a string, not a number, as object keys are coerced
+            // into strings (or Symbols) and sheetId is often used as a Record key.
+            sheetId: String(SpreadsheetApp.getActive().getActiveSheet().getSheetId()),
             version,
             timer: Boolean(getTimer()),
             sheets: ctx.getSettings(),
@@ -943,12 +1028,17 @@ function getSidebarData() {
 }
 /** Finds the timer trigger. */
 function getTimer() {
+    console.log(ScriptApp.getProjectTriggers().map(t => [t.getUniqueId(), t.getHandlerFunction()]));
+    let timer = undefined;
     for (const trigger of ScriptApp.getProjectTriggers()) {
-        if (trigger.getHandlerFunction() === TIMER_TRIGGER) {
-            return trigger;
+        if (trigger.getHandlerFunction() === 'DiscouRSSTimer') {
+            ScriptApp.deleteTrigger(trigger);
+        }
+        if (trigger.getHandlerFunction() === discourssTimerTrigger.name) {
+            timer = trigger;
         }
     }
-    return undefined;
+    return timer;
 }
 /** Enable or Disable the timer. */
 function toggleTimer() {
@@ -958,28 +1048,46 @@ function toggleTimer() {
             ScriptApp.deleteTrigger(timer);
             return false;
         }
-        ScriptApp.newTrigger(TIMER_TRIGGER).timeBased().everyHours(1).create();
+        ScriptApp.newTrigger(discourssTimerTrigger.name).timeBased().everyHours(1).create();
         return true;
     });
 }
 /** Timer execution. */
-function timerTrigger() {
+function discourssTimerTrigger() {
     wrapper('timer', undefined, ctx => {
         execute(ctx);
     });
 }
-function alert(msg) {
+function alert(msg, buttonset) {
     const ui = SpreadsheetApp.getUi();
-    ui.alert(msg);
+    let btn;
+    if (buttonset) {
+        btn = SpreadsheetApp.getUi().alert(msg, ui.ButtonSet[buttonset]);
+    }
+    else {
+        btn = SpreadsheetApp.getUi().alert(msg);
+    }
+    return btn.toString();
 }
-function deleteSettings(sheet) {
-    wrapper('deleteSettings', undefined, ctx => {
-        ctx.deleteSettings(sheet);
-        ctx.info('Settings deleted.');
+function deleteSettings(sheetId) {
+    return wrapper('deleteSettings', undefined, ctx => {
+        var _a;
+        const sheet = ctx.getWorksheet(sheetId);
+        ctx.deleteSettings(sheetId);
+        ctx.info(`[${(_a = sheet === null || sheet === void 0 ? void 0 : sheet.getName()) !== null && _a !== void 0 ? _a : sheetId})] Settings deleted.`);
+        ctx.loadSettings();
+        return { sheetData: ctx.getSheetData(sheetId) };
     });
 }
 function pollCurrentSheet() {
-    return SpreadsheetApp.getActive().getActiveSheet().getName();
+    const ss = SpreadsheetApp.getActive();
+    return {
+        // NOTE: sheetId is a string, not a number, as object keys are coerced
+        // into strings (or Symbols) and sheetId is often used as a Record key.
+        sheetId: String(ss.getActiveSheet().getSheetId()),
+        version: version,
+        sheetNames: ss.getSheets().map(s => [String(s.getSheetId()), s.getName()]),
+    };
 }
 /** HTTP endpoint. Currently unsued. */
 function doGet(e) {

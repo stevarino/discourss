@@ -14,14 +14,16 @@ export function processFeed(feed, ctx) {
         return { status: STATUS.SKIP, status_text: '' };
     }
     ctx.info(`${feed.feed} - fetching`);
-    const res = ctx.fetch(feed.feed, { muteHttpExceptions: true });
+    const res = ctx.fetch(feed.feed);
     if (!String(res.getResponseCode()).startsWith('2')) {
         return {
             status: STATUS.ERROR,
             status_text: `HTTP Response code: ${res.getResponseCode()}`
         };
     }
-    return parseRssXml(res.getContentText(), feed, ctx);
+    const text = res.getContentText();
+    ctx.debug(`Received ${text.length} bytes`);
+    return parseRssXml(text, feed, ctx);
 }
 function parseRssXml(content, feed, ctx) {
     var _a;
@@ -42,12 +44,14 @@ function parseRssXml(content, feed, ctx) {
     let foundLast = false;
     let status = 'ok';
     const items = channel.getChildren("item");
+    ctx.debug(`Loaded RSS: ${items.length} items`);
     if (items.length === 0) {
         firstGuid = '0';
         status = 'no items';
     }
     for (const item of items) {
         const guid = (_a = item.getChild('guid')) === null || _a === void 0 ? void 0 : _a.getText();
+        // ctx.debug(`Found item: ${guid}`);
         if (!guid) {
             ctx.warn(`GUID not specified on feed item. Skipping.`);
             continue;
@@ -71,6 +75,7 @@ function parseRssXml(content, feed, ctx) {
     else {
         status = `found ${msg.embeds.length}`;
     }
+    ctx.debug(`Processed ${msg.embeds.length} items`);
     return {
         status: STATUS.OK,
         status_text: status,

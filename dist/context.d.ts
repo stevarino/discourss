@@ -6,7 +6,8 @@ export type LOG_RECORD = [number, LOG_LEVEL, string];
 export declare enum LOG_LEVEL {
     ERROR = 0,
     WARNING = 1,
-    INFO = 2
+    INFO = 2,
+    DEBUG = 3
 }
 type maybeError = string | Error | LOG_RECORD;
 export declare function errorToString(e: unknown): string;
@@ -18,9 +19,8 @@ type SettingsValidator = [
 ];
 declare class Setting<T extends CELL_VALUE> implements SettingInterface {
     value: T;
-    help: string;
     validators: SettingsValidator[];
-    constructor(value: T, help: string, validators?: SettingsValidator[]);
+    constructor(value: T, validators?: SettingsValidator[]);
     toString(): string;
     set(value: CELL_VALUE): string | undefined;
     get(): T;
@@ -45,7 +45,7 @@ declare class SheetSettings implements SettingsInterface {
     settings: Record<string, Setting<CELL_VALUE>>;
     constructor(worksheet?: Worksheet);
     loadSettings(): string | undefined;
-    getSettings(): [string, CELL_VALUE, string][];
+    getSettings(): [string, CELL_VALUE][];
     validateSettings(record: Record<string, CELL_VALUE>): string[];
     setSettings(settings: [string, CELL_VALUE][]): string[];
     deleteSettings(): void;
@@ -54,21 +54,25 @@ declare class SheetSettings implements SettingsInterface {
 export declare class Context {
     sheetSettings: Record<string, SheetSettings>;
     logs: LOG_RECORD[];
-    debug: boolean;
     fetcher: Fetcher;
+    logger: ((logs: LOG_RECORD[]) => void) | undefined;
     now: number;
+    purgedAt: number;
     spreadsheet: Spreadsheet;
-    defaults: [string, CELL_VALUE, string][];
+    defaults: [string, CELL_VALUE][];
     constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]);
     loadSettings(): void;
     getSettings(): Record<string, SidebarSheetsData>;
-    setSettings(sheet: string, values: [string, CELL_VALUE][]): string[];
-    deleteSettings(sheet: string): void;
+    getSheetData(sheetId: string): SidebarSheetsData;
+    getWorksheet(sheetId: string): Worksheet | undefined;
+    setSettings(sheetId: string, values: [string, CELL_VALUE][]): string[];
+    deleteSettings(sheetId: string): void;
     reset(spreadsheet?: Spreadsheet): void;
-    fetch(url: string, params: FetchRequest): FetchResponse;
+    fetch(url: string, params?: FetchRequest): FetchResponse;
     log(level: LOG_LEVEL, message: string): void;
     error(message: string): void;
     warn(message: string): void;
     info(message: string): void;
+    debug(message: string): void;
 }
 export {};

@@ -3,7 +3,7 @@
  */
 
 import { Context } from './context.js';
-import { Embed, Message, Feed, truthy, XmlElement, DEFAULT_APP_NAME, SettingsInterface } from './common.js';
+import { Embed, Message, Feed, truthy, XmlElement, DEFAULT_APP_NAME, SettingsInterface, FetchRequest } from './common.js';
 import { nodeToMarkdown } from './markdown.js';
 
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
@@ -36,17 +36,13 @@ function findDomain(embeds: Embed[]): number {
   return set.values().next().value ?? -1;
 }
 
-export function buildEmbed(ctx: Context, settings: SettingsInterface, xml: XmlElement): Embed {
+export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElement): Embed {
   const html = Cheerio.load(xml.getChild('description')!.getValue());
   const embed: Embed = {
     title: xml.getChild("title")?.getText(),
     url: xml.getChild('link')?.getText(),
     description: nodeToMarkdown(html),
     fields: [],
-  }
-
-  if (ctx.debug) {
-    embed.fields.push({name: 'guid', value: xml.getChild('guid')!.getText()});
   }
 
   const image = html('img').attr('src');
@@ -57,6 +53,7 @@ export function buildEmbed(ctx: Context, settings: SettingsInterface, xml: XmlEl
       embed.thumbnail = {url: image};
     }
   }
+  // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
   return embed;
 }
 
@@ -83,6 +80,8 @@ export function sendDiscordMessage(embeds: Embed[], feed: Feed, ctx: Context): v
   const signature = settings.signature.value;
   if (signature && signature.includes('%s')) {
     message.content = signature.replace('%s', message.content!);
+  } else if (signature) {
+    message.content = signature;
   }
 
   // if we're not bundling, copy message for each embed.
@@ -93,13 +92,13 @@ export function sendDiscordMessage(embeds: Embed[], feed: Feed, ctx: Context): v
     const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
     msg.avatar_url = truthy(settings.avatar_url.value, domain?.logo);
     msg.username = truthy(settings.appname.value, domain?.appname) ?? DEFAULT_APP_NAME;
+    // ctx.debug(`payload: ${JSON.stringify(msg)}`)
     const response = ctx.fetch(settings.webhook.value, {
       method: 'post',
       payload: JSON.stringify(msg),
-      muteHttpExceptions: true,
       contentType: "application/json"
-    });
-    if (response.getResponseCode() != 204) {
+    } as FetchRequest);
+    if (!response.getResponseCode().toString().startsWith('2')) {
       throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
     }
   }

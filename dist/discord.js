@@ -31,7 +31,7 @@ function findDomain(embeds) {
     }
     return (_a = set.values().next().value) !== null && _a !== void 0 ? _a : -1;
 }
-export function buildEmbed(ctx, settings, xml) {
+export function buildEmbed(_, settings, xml) {
     var _a, _b;
     const html = Cheerio.load(xml.getChild('description').getValue());
     const embed = {
@@ -40,9 +40,6 @@ export function buildEmbed(ctx, settings, xml) {
         description: nodeToMarkdown(html),
         fields: [],
     };
-    if (ctx.debug) {
-        embed.fields.push({ name: 'guid', value: xml.getChild('guid').getText() });
-    }
     const image = html('img').attr('src');
     if (image) {
         if (settings.image_format.value == 'image') {
@@ -52,6 +49,7 @@ export function buildEmbed(ctx, settings, xml) {
             embed.thumbnail = { url: image };
         }
     }
+    // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
     return embed;
 }
 /**
@@ -78,6 +76,9 @@ export function sendDiscordMessage(embeds, feed, ctx) {
     if (signature && signature.includes('%s')) {
         message.content = signature.replace('%s', message.content);
     }
+    else if (signature) {
+        message.content = signature;
+    }
     // if we're not bundling, copy message for each embed.
     const messages = settings.bundle.value ? [message] :
         message.embeds.map(e => { return { ...message, embeds: [e] }; });
@@ -85,13 +86,13 @@ export function sendDiscordMessage(embeds, feed, ctx) {
         const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
         msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
         msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
+        // ctx.debug(`payload: ${JSON.stringify(msg)}`)
         const response = ctx.fetch(settings.webhook.value, {
             method: 'post',
             payload: JSON.stringify(msg),
-            muteHttpExceptions: true,
             contentType: "application/json"
         });
-        if (response.getResponseCode() != 204) {
+        if (!response.getResponseCode().toString().startsWith('2')) {
             throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
         }
     }

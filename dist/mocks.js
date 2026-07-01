@@ -2,23 +2,14 @@
 import * as cheerio from 'cheerio';
 import { Fetcher } from './common.js';
 import { Context } from './context.js';
-export function buildContext(sheetName) {
+/** Returns a context with a mock spreadsheet and one mock worksheet */
+export function buildMocks(sheetName = 'Feeds') {
     const ss = new MockSpreadsheet();
-    ss.insertSheet(sheetName);
+    const ws = ss.insertSheet(sheetName);
     const ctx = new Context(ss);
     ctx.fetcher = new MockFetcher();
-    ctx.sheetSettings[sheetName].isSet = true;
-    return ctx;
-}
-export function createTestContext(sheet) {
-    return {
-        spreadsheet: sheet,
-        feedHeaders: [],
-        feedPatternRe: /^https:\/\//,
-        error: () => { },
-        warn: () => { },
-        info: () => { }
-    };
+    ctx.sheetSettings[ws.getSheetId()].isSet = true;
+    return [ctx, ss, ws];
 }
 export class MockResponse {
     constructor(contentText, responseCode = 200) {
@@ -39,7 +30,7 @@ export class MockFetcher extends Fetcher {
         this.defaultResponse = new MockResponse('', 404);
         this.requests = {};
     }
-    fetch(url, req) {
+    fetch(url, req, _) {
         let res = null;
         for (const rule of this.rules) {
             if (typeof rule.urlPattern === 'string') {
@@ -174,13 +165,20 @@ class MockMetadataContainer {
     }
 }
 class MockWorksheet extends MockMetadataContainer {
-    constructor(name) {
+    constructor(name, sheetId) {
         super();
         this.cells = new Map();
+        this.id = sheetId;
         this.name = name;
+    }
+    getSheetId() {
+        return this.id;
     }
     getName() {
         return this.name;
+    }
+    clear() {
+        this.cells.clear();
     }
     getCell(r, c) {
         var _a;
@@ -237,14 +235,25 @@ export class MockSpreadsheet extends MockMetadataContainer {
     constructor() {
         super(...arguments);
         this.sheets = new Map();
+        this.sheetsById = new Map();
+        this.sheetIndex = 0;
+    }
+    getId() {
+        return 'test';
+    }
+    getSheetById(id) {
+        var _a;
+        return (_a = this.sheetsById.get(id)) !== null && _a !== void 0 ? _a : null;
     }
     getSheetByName(name) {
         var _a;
         return (_a = this.sheets.get(name)) !== null && _a !== void 0 ? _a : null;
     }
     insertSheet(name) {
-        const ws = new MockWorksheet(name);
+        this.sheetIndex += 1;
+        const ws = new MockWorksheet(name, this.sheetIndex);
         this.sheets.set(name, ws);
+        this.sheetsById.set(this.sheetIndex, ws);
         return ws;
     }
     getSheets() {
