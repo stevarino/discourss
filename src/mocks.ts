@@ -3,22 +3,19 @@
 import * as cheerio from 'cheerio';
 
 import {
-  Spreadsheet, CELL_VALUE, Worksheet, BaseContext, XmlDocument, XmlElement,
-  FetchRequest, FetchResponse, Fetcher
+  Spreadsheet, CELL_VALUE, Worksheet, XmlDocument, XmlElement,
+  FetchRequest, FetchResponse, Fetcher, MetadataContainer
 } from './common.js';
+import { Context } from './context.js';
 
-// import { CONFIG } from './common.js';
-// CONFIG.LOG_TO_STDERR = true;
-
-export function createTestContext(sheet: Spreadsheet): BaseContext {
-  return {
-    spreadsheet: sheet,
-    feedHeaders: [],
-    feedPatternRe: /^https:\/\//,
-    error: () => {},
-    warn: () => {},
-    info: () => {}
-  };
+/** Returns a context with a mock spreadsheet and one mock worksheet */
+export function buildMocks(sheetName='Feeds'): [Context, Spreadsheet, Worksheet] {
+  const ss = new MockSpreadsheet();
+  const ws = ss.insertSheet(sheetName)
+  const ctx = new Context(ss);
+  ctx.fetcher = new MockFetcher();
+  ctx.sheetSettings[ws.getSheetId()].isSet = true;
+  return [ctx, ss, ws];
 }
 
 export class MockResponse implements FetchResponse {
@@ -44,7 +41,7 @@ export class MockFetcher extends Fetcher {
   private defaultResponse: FetchResponse = new MockResponse('', 404);
   requests: Record<string, {req: FetchRequest, res: FetchResponse}[]> = {};
 
-  override fetch(url: string, req: FetchRequest): FetchResponse {
+  override fetch(url: string, req: FetchRequest, _: any): FetchResponse {
     let res: FetchResponse | null = null;
     for (const rule of this.rules) {
       if (typeof rule.urlPattern === 'string') {
@@ -197,12 +194,40 @@ export class MockRange {
   setWrap(): MockRange { return this; }
 }
 
-class MockWorksheet implements Worksheet {
+abstract class MockMetadataContainer implements MetadataContainer {
+  public metadata: Record<string, string> = {};
+
+  addDeveloperMetadata(key: string, value: string): MockMetadataContainer {
+    this.metadata[key] = value;
+    return this;
+  }
+
+  createDeveloperMetadataFinder(): MockMetadataFinder {
+    return new MockMetadataFinder(this);
+  }
+}
+
+class MockWorksheet extends MockMetadataContainer implements Worksheet  {
   public name: string;
+  private id: number;
   private cells = new Map<string, CELL_VALUE>();
 
-  constructor(name: string) {
+  constructor(name: string, sheetId: number) {
+    super();
+    this.id = sheetId;
     this.name = name;
+  }
+
+  getSheetId(): number {
+    return this.id;
+  }
+
+  getName(): string {
+    return this.name;
+  }
+
+  clear(): void {
+    this.cells.clear();
   }
 
   getCell(r: number, c: number): CELL_VALUE {
@@ -220,7 +245,7 @@ class MockWorksheet implements Worksheet {
   getLastRow(): number {
     let maxRow = -1;
     for (const key of this.cells.keys()) {
-      const r = parseInt(key.split(',')[0], 10);
+      const r = parseInt(key.split(',')[0]);
       if (r > maxRow) {
         maxRow = r;
       }
@@ -229,8 +254,9 @@ class MockWorksheet implements Worksheet {
   }
 
   getLastColumn(): number {
-    return Math.max(...Array.from(this.cells.keys()).map(
-      k => parseInt(k.split(',')[1], 10))) + 1;
+    const maxCol = Math.max(-1, ...Array.from(this.cells.keys()).map(
+      k => parseInt(k.split(',')[1]))) + 1;
+    return maxCol;    
   }
 
   getDataRange(): MockRange {
@@ -259,17 +285,75 @@ class MockWorksheet implements Worksheet {
   autoResizeRows(): void {}
 }
 
-export class MockSpreadsheet implements Spreadsheet {
+export class MockSpreadsheet extends MockMetadataContainer implements Spreadsheet {
   public sheets: Map<string, MockWorksheet> = new Map();
+  public sheetsById: Map<number, MockWorksheet> = new Map();
+  private sheetIndex = 0;
+  
+  getId(): string {
+    return 'test';
+  }
+
+  getSheetById(id: number): MockWorksheet | null {
+    return this.sheetsById.get(id) ?? null;
+  }
 
   getSheetByName(name: string): MockWorksheet | null {
     return this.sheets.get(name) ?? null;
   }
 
   insertSheet(name: string): MockWorksheet {
-    const ws = new MockWorksheet(name);
+    this.sheetIndex += 1;
+    const ws = new MockWorksheet(name, this.sheetIndex);
     this.sheets.set(name, ws);
+    this.sheetsById.set(this.sheetIndex, ws);
     return ws;
+  }
+
+  getSheets(): Worksheet[] {
+    return Array.from(this.sheets.values());
+  }
+}
+
+export class MockMetadataFinder {
+  key: string = ''
+  constructor(public source: MockMetadataContainer) {}
+  
+  withKey(key: string): MockMetadataFinder {
+    this.key = key;
+    return this;
+  }
+
+  find(): MockMetadata[]  {
+    if (this.source.metadata[this.key]) {
+      return [new MockMetadata(this)];
+    }
+    return [];
+  }
+}
+
+class MockMetadata {
+  constructor(public finder: MockMetadataFinder) {}
+
+  getValue(): string | null {
+    return this.finder.source.metadata[this.finder.key] ?? null;
+  }
+
+  setValue(val: string): MockMetadata {
+    this.finder.source.metadata[this.finder.key] = val;
+    return this;
+  }
+
+  remove(): void {
+    delete this.finder.source.metadata[this.finder.key];
+  }
+
+  getKey(): string {
+    return this.finder.key;
+  }
+
+  getId(): number {
+    return 0;
   }
 }
 

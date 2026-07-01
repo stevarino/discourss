@@ -2,7 +2,11 @@
  * common.js - common interfaces, types, and constants.
  */
 
+import { version } from "./version.js";
+
 /** If test is truthy, return test, otherwise return other (or undefined) */
+export const DEFAULT_APP_NAME = 'DiscouRSS';
+
 export function truthy<T>(test: T, other?: T): T | undefined {
   if (test) {
     return test;
@@ -10,12 +14,18 @@ export function truthy<T>(test: T, other?: T): T | undefined {
   return other;
 }
 
+// from GoogleAppsScript.Base.Button and GoogleAppsScript.Base.ButtonSet
+export type Button = "CLOSE"|"OK"|"CANCEL"|"YES"|"NO";
+export type ButtonSet = "OK"|"OK_CANCEL"|"YES_NO"|"YES_NO_CANCEL";
+
 export const CONFIG = {
   LOG_TO_STDERR: false,
+  LOG_DEBUG: false,
 };
 
-export interface Feed {
+export interface PartialFeed {
   index: number,
+  settings: SettingsInterface,
   feed?: string,
   time?: number|string,
   discord?: string|number,
@@ -23,9 +33,9 @@ export interface Feed {
   status?: string,
 }
 
-export type SafeFeed = Feed & {time: number, feed: string};
+export type Feed = PartialFeed & {time: number, feed: string};
 
-export type FeedLookup = Record<keyof Feed, string|number|undefined>;
+export type FeedLookup = Record<keyof PartialFeed, string|number|undefined|SettingsInterface>;
 
 export interface Embed {
   title?: string,
@@ -59,16 +69,6 @@ export interface Result {
   guid?: string,
   message?: Message,
   sheets_update?: [SHEET_HEADERS_FIELDS, string|number][],
-}
-
-// light version of Settings
-export interface BaseContext {
-  spreadsheet: Spreadsheet,
-  feedHeaders: CELL_VALUE[],
-  feedPatternRe: RegExp,
-  error(message: string): void,
-  warn(message: string): void,
-  info(message: string): void,
 }
 
 export interface SHEET_HEADER_TYPES {
@@ -113,12 +113,39 @@ export const HEADER_LOOKUP = Object.fromEntries(
 /** Sheets Interfaces */
 export type CELL_VALUE = string | number | boolean;
 
-export interface Spreadsheet {
-  getSheetByName(name: string): Worksheet|null,
-  insertSheet(name: string): Worksheet,
+export interface Metadata {
+  getValue(): string | null,
+  setValue(val: string): Metadata,
+  getKey(): string,
+  getId(): number,
+  remove(): void,
 }
 
-export interface Worksheet {
+export interface MetadataFinder {
+  withKey(key: string): MetadataFinder,
+  find(): Metadata[],
+}
+
+export interface MetadataContainer {
+  addDeveloperMetadata(key: string, value: string): MetadataContainer,
+  createDeveloperMetadataFinder(): MetadataFinder,
+
+}
+
+// https://developers.google.com/apps-script/reference/spreadsheet/spreadsheet
+export type Spreadsheet = {
+  getId(): string,
+  getSheetByName(name: string): Worksheet|null,
+  getSheetById(id: number): Worksheet|null,
+  insertSheet(name: string): Worksheet,
+  getSheets(): Worksheet[],
+} & MetadataContainer
+
+// https://developers.google.com/apps-script/reference/spreadsheet/sheet
+export type Worksheet = {
+  getSheetId(): number,
+  getName(): string,
+  clear(): void,
   getLastRow(): number,
   getLastColumn(): number,
   getDataRange(): Range,
@@ -127,7 +154,7 @@ export interface Worksheet {
   setColumnWidth(column: number, size: number): void,
   getColumnWidth(column: number): number,
   autoResizeRows(startRow: number, numRows: number): void,
-}
+} & MetadataContainer
 
 export interface Range {
   getValues(): CELL_VALUE[][],
@@ -165,8 +192,28 @@ export interface XmlElement {
 
 /** Fetcher object for use in context. */
 export class Fetcher {
-  fetch(url: string, req: FetchRequest): FetchResponse {
-    return UrlFetchApp.fetch(url, req);
+  default_params = {
+    muteHttpExceptions: true,
+    timeoutSeconds: 5,
+  };
+
+  default_http_headers = {
+    "User-Agent": `DiscouRSS ${version} ${SpreadsheetApp?.getActive()?.getId()} - https://discourss.stevarino.com`,
+  }
+
+  fetch(url: string, req: FetchRequest, log?: (log: string) => void): FetchResponse {
+    log = log || (() => {})
+    const headers = Object.assign({}, this.default_http_headers, req.headers ?? {});
+    req = Object.assign({}, this.default_params, req, {headers})
+    if (CONFIG.LOG_DEBUG) {
+      log(`Fetching ${url} - payload(${req.payload?.length})`);
+    }
+    const res = UrlFetchApp.fetch(url, req);
+    if (CONFIG.LOG_DEBUG) {
+      const bytes = [0, ...res.getBlob().getBytes()].reduce((a, b) => a+b);
+      log(`Response: ${res.getResponseCode()} (${bytes} bytes)`);
+    }
+    return res;
   }
 }
 
@@ -175,9 +222,67 @@ export interface FetchRequest {
   payload?: string,
   muteHttpExceptions?: boolean,
   contentType?: string,
+  timeoutSeconds?: number,
+  followRedirects?: true,
+  headers?: Record<string, string>,
 }
 
 export interface FetchResponse {
   getResponseCode(): number
   getContentText(): string;
+}
+
+export interface SidebarSheetsData {
+  name: string,
+  sheetId: string
+  isSet: boolean,
+  settings: [string, CELL_VALUE][]
+}
+
+export interface SidebarData {
+  version: string,
+  sheetId: string,
+  timer:  boolean,
+  sheets: Record<string, SidebarSheetsData>,
+}
+
+export interface SidebarPollResponse {
+  version: string,
+  sheetId: string,
+  sheetNames: [string, string][],
+}
+
+export interface SidebarSaveRequest {
+  isNew: boolean,
+  sheetId: string,
+  fields: [string, CELL_VALUE][],
+}
+
+export interface SidebarSaveResponse {
+  // errors: string[],
+  sheetData?: SidebarSheetsData,
+}
+
+export interface SettingInterface<T=CELL_VALUE> {
+  value: T,
+  get(): T,
+  set(value: T): void
+}
+
+export interface SettingsInterface {
+  isSet: boolean,
+  worksheet: Worksheet | undefined,
+  feedHeaders: CELL_VALUE[],
+
+  webhook: SettingInterface<string>;
+  appname: SettingInterface<string>;
+  avatar_url: SettingInterface<string>;
+  signature: SettingInterface<string>;
+  feed_pattern: SettingInterface<string>;
+  feed_limit: SettingInterface<number>;
+  feed_frequency: SettingInterface<number>;
+  image_format: SettingInterface<"image"|"thumbnail"|"none">;
+  bundle: SettingInterface<boolean>;
+
+  feedCount: number;
 }

@@ -13,13 +13,13 @@ import { rollup } from 'rollup';
 import * as resolve from '@rollup/plugin-node-resolve';
 import { version } from './version.js';
 const entryFile = 'dist/index.js';
-const directory = 'dist/clasp';
-const bundleFile = directory + '/code.gs';
+const claspDir = 'dist/clasp';
+const bundleFile = claspDir + '/code.gs';
 const URL = 'https://workspace.google.com/marketplace/app/discourss/107272671119';
 // const PROD_DEPLOYMENT = 'AKfycbxtvC7at1Ru1wBUFUexXzP2Pn5SSHCyil7U_Cwrr8Jk_WEqjNwP-cTQSOw4rHQt_y2IJQ';
 // const URL = `https://script.google.com/macros/s/${PROD_DEPLOYMENT}/exec`;
 const toCopy = [
-    'data/appsscript.json'
+    'data/appsscript.json',
 ];
 const toRemove = [
     /^export \{[^}]+\};?/mg,
@@ -104,31 +104,47 @@ async function buildWeb() {
         }
     }
 }
-async function build() {
-    await writeVersion();
-    await buildWeb();
+function cleanCode(code) {
+    for (const regex of toRemove) {
+        while (regex.test(code)) {
+            code = code.replace(regex, '');
+        }
+    }
+    return code;
+}
+async function buildSidebar() {
+    const target = '__SIDEBAR_SCRIPT__';
+    const js = (await rollupJs('dist/sidebar.js')).join('\n');
+    let html = await fs.readFile('data/sidebar.html', 'utf-8');
+    html = cleanCode(html.replace(target, js));
+    await fs.writeFile('dist/clasp/sidebar.html', html);
+}
+async function rollupJs(filename) {
     const bundle = await rollup({
-        input: entryFile,
+        input: filename,
         plugins: [resolve.nodeResolve()]
     });
-    fs.mkdir(directory, { recursive: true });
-    const output = [TOP_LEVEL_COMMENT];
+    const output = [];
     const chunks = await bundle.generate({ format: 'esm' });
     for (const chunk of chunks.output) {
         let code = chunk.code;
         if (code !== undefined) {
-            for (const regex of toRemove) {
-                while (regex.test(code)) {
-                    code = code.replace(regex, '');
-                }
-            }
-            output.push(code);
+            output.push(cleanCode(code));
         }
     }
-    await fs.writeFile(bundleFile, output.join('\n'));
+    return output;
+}
+async function build() {
+    await fs.mkdir('dest/clasp', { recursive: true });
+    await writeVersion();
+    await buildWeb();
+    await buildSidebar();
+    const output = await rollupJs(entryFile);
+    fs.mkdir(claspDir, { recursive: true });
+    await fs.writeFile(bundleFile, [TOP_LEVEL_COMMENT, ...output].join('\n'));
     for (const filename of toCopy) {
         const fn = path.basename(filename);
-        await fs.copyFile(filename, path.join(directory, fn));
+        await fs.copyFile(filename, path.join(claspDir, fn));
     }
     console.log(`Rolled up ${entryFile} into ${bundleFile}`);
 }

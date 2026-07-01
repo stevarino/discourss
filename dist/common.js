@@ -1,7 +1,9 @@
 /**
  * common.js - common interfaces, types, and constants.
  */
+import { version } from "./version.js";
 /** If test is truthy, return test, otherwise return other (or undefined) */
+export const DEFAULT_APP_NAME = 'DiscouRSS';
 export function truthy(test, other) {
     if (test) {
         return test;
@@ -10,6 +12,7 @@ export function truthy(test, other) {
 }
 export const CONFIG = {
     LOG_TO_STDERR: false,
+    LOG_DEBUG: false,
 };
 export var STATUS;
 (function (STATUS) {
@@ -53,7 +56,29 @@ export const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).ma
  */
 /** Fetcher object for use in context. */
 export class Fetcher {
-    fetch(url, req) {
-        return UrlFetchApp.fetch(url, req);
+    constructor() {
+        var _a;
+        this.default_params = {
+            muteHttpExceptions: true,
+            timeoutSeconds: 5,
+        };
+        this.default_http_headers = {
+            "User-Agent": `DiscouRSS ${version} ${(_a = SpreadsheetApp === null || SpreadsheetApp === void 0 ? void 0 : SpreadsheetApp.getActive()) === null || _a === void 0 ? void 0 : _a.getId()} - https://discourss.stevarino.com`,
+        };
+    }
+    fetch(url, req, log) {
+        var _a, _b;
+        log = log || (() => { });
+        const headers = Object.assign({}, this.default_http_headers, (_a = req.headers) !== null && _a !== void 0 ? _a : {});
+        req = Object.assign({}, this.default_params, req, { headers });
+        if (CONFIG.LOG_DEBUG) {
+            log(`Fetching ${url} - payload(${(_b = req.payload) === null || _b === void 0 ? void 0 : _b.length})`);
+        }
+        const res = UrlFetchApp.fetch(url, req);
+        if (CONFIG.LOG_DEBUG) {
+            const bytes = [0, ...res.getBlob().getBytes()].reduce((a, b) => a + b);
+            log(`Response: ${res.getResponseCode()} (${bytes} bytes)`);
+        }
+        return res;
     }
 }

@@ -1,19 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { processFeed } from './rss.js';
-import { Context } from './context.js';
-import { MockFetcher } from './mocks.js';
-import { SafeFeed, STATUS, Spreadsheet } from './common.js';
-
-
-// --- Helper to build test Context ---
-function createTestContext(now: number = Date.now()): Context {
-  const dummySpreadsheet = {} as Spreadsheet;
-  const ctx = new Context(dummySpreadsheet);
-  ctx.now = now;
-  ctx.fetcher = new MockFetcher();
-  return ctx;
-}
+import { buildMocks, MockFetcher } from './mocks.js';
+import { Feed, STATUS } from './common.js';
 
 const SAMPLE_RSS_FEED = `
 <rss version="2.0">
@@ -41,16 +30,18 @@ const SAMPLE_RSS_FEED = `
 
 describe('rss.ts unit tests', () => {
   test('skips feed processing if checked recently (frequency limit)', () => {
-    const ctx = createTestContext();
-    ctx.feed_frequency.value = 3600; // 1 hour limit
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
+    settings.feed_frequency.value = 3600; // 1 hour limit
 
-    const feed: SafeFeed = {
+    const feed: Feed = {
       index: 1,
       feed: 'https://example.com/rss',
       time: ctx.now - 1800 * 1000, // 30 mins ago
       discord: 'test-webhook',
       guid: 'guid-0',
-      status: 'ok'
+      status: 'ok',
+      settings: settings
     };
 
     const result = processFeed(feed, ctx);
@@ -58,19 +49,21 @@ describe('rss.ts unit tests', () => {
   });
 
   test('returns error status if server responds with non-204 status code', () => {
-    const ctx = createTestContext();
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
     mockFetcher.addMock(url, 'Internal Server Error', 500);
 
-    const feed: SafeFeed = {
+    const feed: Feed = {
       index: 1,
       feed: url,
       time: ctx.now - 7200 * 1000, // 2 hours ago (safely passes frequency check)
       discord: 'test-webhook',
       guid: 'guid-0',
-      status: 'ok'
+      status: 'ok',
+      settings: settings,
     };
 
     const result = processFeed(feed, ctx);
@@ -79,19 +72,21 @@ describe('rss.ts unit tests', () => {
   });
 
   test('correctly parses feed items and extracts title, link, guid, and description paragraphs', () => {
-    const ctx = createTestContext();
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
     mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
-    const feed: SafeFeed = {
+    const feed: Feed = {
       index: 1,
       feed: url,
       time: ctx.now - 7200 * 1000,
       discord: 'test-webhook',
       guid: '0', // completely new feed, parses everything
-      status: 'ok'
+      status: 'ok',
+      settings: settings,
     };
 
     const result = processFeed(feed, ctx);
@@ -114,20 +109,23 @@ describe('rss.ts unit tests', () => {
   });
 
   test('extracts images as main image or thumbnail based on configuration', () => {
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
+
     const url = 'https://example.com/rss';
-    const feed: SafeFeed = {
+    const feed: Feed = {
       index: 1,
       feed: url,
       time: Date.now() - 7200 * 1000,
       discord: 'test-webhook',
       guid: '0',
-      status: 'ok'
+      status: 'ok',
+      settings: settings
     };
 
     // Case 1: image_format = 'image'
     {
-      const ctx = createTestContext(feed.time + 7200 * 1000);
-      ctx.image_format.value = 'image';
+      settings.image_format.value = 'image';
       (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
@@ -138,8 +136,7 @@ describe('rss.ts unit tests', () => {
 
     // Case 2: image_format = 'thumbnail'
     {
-      const ctx = createTestContext(feed.time + 7200 * 1000);
-      ctx.image_format.value = 'thumbnail';
+      settings.image_format.value = 'thumbnail';
       (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
@@ -150,8 +147,7 @@ describe('rss.ts unit tests', () => {
 
     // Case 3: image_format = 'none'
     {
-      const ctx = createTestContext(feed.time + 7200 * 1000);
-      ctx.image_format.value = 'none';
+      settings.image_format.value = 'none';
       (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
@@ -162,19 +158,22 @@ describe('rss.ts unit tests', () => {
   });
 
   test('stops parsing when it hits the last seen guid', () => {
-    const ctx = createTestContext();
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
+
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
     mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
-    const feed: SafeFeed = {
+    const feed: Feed = {
       index: 1,
       feed: url,
       time: ctx.now - 7200 * 1000,
       discord: 'test-webhook',
       guid: 'guid-2', // We have already seen Item 2, so only Item 1 (latest) is new
-      status: 'ok'
+      status: 'ok',
+      settings: settings
     };
 
     const result = processFeed(feed, ctx);
@@ -188,19 +187,21 @@ describe('rss.ts unit tests', () => {
   });
 
   test('discards message embeds and flags as "new feed" if last seen guid is not found and is not "0"', () => {
-    const ctx = createTestContext();
+    const [ctx, _, ws] = buildMocks();
+    const settings = ctx.sheetSettings[ws.getSheetId()];
     const mockFetcher = ctx.fetcher as MockFetcher;
     const url = 'https://example.com/rss';
 
     mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
-    const feed: SafeFeed = {
+    const feed: Feed = {
       index: 1,
       feed: url,
       time: ctx.now - 7200 * 1000,
       discord: 'test-webhook',
       guid: 'non-existent-guid', // last seen guid isn't in this XML payload
-      status: 'ok'
+      status: 'ok',
+      settings: settings
     };
 
     const result = processFeed(feed, ctx);

@@ -1,0 +1,115 @@
+<html>
+<head>
+  <title>DiscouRSS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rosarivo:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --orange: #ff6600;
+      --blurple: #5865F2;
+    }
+    body {
+      background-color: #fff;
+    }
+    body > content {
+      display: none; 
+      flex-direction: column;
+    }
+    body.loaded {
+      > h1 { display: none; }
+      > content { display: flex; }
+    }
+    h1, hr {
+      font-size: 1.25em;
+      font-family: "Rosarivo", cursive;
+      border: 0;
+      margin: 0.67em 0;
+      border-bottom: 3px solid transparent;
+      border-image: linear-gradient(to right, var(--orange), var(--blurple)) 1;
+    }
+    h2 {
+      margin-bottom: 0;
+      font-family: "Rosarivo", cursive;
+      font-size: 1em;
+    }
+    #settings, #settings div {
+      display: flex;
+      flex-direction: column;
+    }
+    input[type="button"] {
+      cursor: pointer;
+      border-width: 1px 2px 2px 1px;
+      margin-right: 5px;
+      background-color: var(--blurple);
+      color: #fff;
+      font-weight: bold;
+    } 
+    input, select {
+      box-sizing: border-box;
+      display: block;
+      border-color: #666;
+      border-width: 1px;
+      font-size: 1.1em;
+      padding: 0.2em;
+      width: stretch;
+      margin: 0 1em 0.5em 0.5em;
+      flex-grow: 1;
+    }
+    select {
+      padding-right: 0.25em;
+    }
+    input:hover, input:focus, select:hover, select:focus {
+      box-shadow: 0.25em 0.25em #ff6600;
+    }
+  </style>
+</head>
+<body>
+<h1>Loading...</h1>
+<content>
+  <h1>Spreadsheet Actions</h1>
+  <input type="button" value="Run" id="runBtn" />
+  <input type="button" value="Timer" id="timerBtn" />
+  <h1><span id="sheetName"></span></h1>
+  <div id="settings">
+    <h2>webhook</h2>
+    <input type="text" name="webhook" />
+    <div>
+      <h2>appname</h2>
+      <input type="text" name="appname" />
+      <h2>avatar_url</h2>
+      <input type="text" name="avatar_url" />
+      <h2>signature</h2>
+      <input type="text" name="signature" />
+      <h2>feed_pattern</h2>
+      <input type="text" name="feed_pattern" />
+      <h2>feed_limit</h2>
+      <input type="number" name="feed_limit" />
+      <h2>feed_frequency</h2>
+      <input type="number" name="feed_frequency" />
+      <h2>image_format</h2>
+      <select name="image_format">
+        <option value="image">Image</option>
+        <option value="thumbnail">thumbnail</option>
+        <option value="none">None</option>
+      </select>
+      <h2>bundle</h2>
+      <select name="bundle" data-type="boolean">
+        <option value="true">True</option>
+        <option value="false" selected="selected">False</option>
+      </select>
+    </div>
+  </div>
+  <hr />
+  <input type="button" value="Save" id="saveBtn" />
+  <input type="button" value="Delete Settings" id="deleteBtn" class="nonnew" />
+  <p>Version: <span id="version"></span></p>
+  <input type="button" value="Refresh Settings" id="refreshBtn" />
+</content>
+
+<script>
+__SIDEBAR_SCRIPT__
+</script>
+  
+</body>
+</html>

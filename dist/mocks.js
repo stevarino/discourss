@@ -1,17 +1,15 @@
 /** mocks.ts - Mocks used in testing. */
 import * as cheerio from 'cheerio';
 import { Fetcher } from './common.js';
-// import { CONFIG } from './common.js';
-// CONFIG.LOG_TO_STDERR = true;
-export function createTestContext(sheet) {
-    return {
-        spreadsheet: sheet,
-        feedHeaders: [],
-        feedPatternRe: /^https:\/\//,
-        error: () => { },
-        warn: () => { },
-        info: () => { }
-    };
+import { Context } from './context.js';
+/** Returns a context with a mock spreadsheet and one mock worksheet */
+export function buildMocks(sheetName = 'Feeds') {
+    const ss = new MockSpreadsheet();
+    const ws = ss.insertSheet(sheetName);
+    const ctx = new Context(ss);
+    ctx.fetcher = new MockFetcher();
+    ctx.sheetSettings[ws.getSheetId()].isSet = true;
+    return [ctx, ss, ws];
 }
 export class MockResponse {
     constructor(contentText, responseCode = 200) {
@@ -32,7 +30,7 @@ export class MockFetcher extends Fetcher {
         this.defaultResponse = new MockResponse('', 404);
         this.requests = {};
     }
-    fetch(url, req) {
+    fetch(url, req, _) {
         let res = null;
         for (const rule of this.rules) {
             if (typeof rule.urlPattern === 'string') {
@@ -154,10 +152,33 @@ export class MockRange {
     }
     setWrap() { return this; }
 }
-class MockWorksheet {
-    constructor(name) {
+class MockMetadataContainer {
+    constructor() {
+        this.metadata = {};
+    }
+    addDeveloperMetadata(key, value) {
+        this.metadata[key] = value;
+        return this;
+    }
+    createDeveloperMetadataFinder() {
+        return new MockMetadataFinder(this);
+    }
+}
+class MockWorksheet extends MockMetadataContainer {
+    constructor(name, sheetId) {
+        super();
         this.cells = new Map();
+        this.id = sheetId;
         this.name = name;
+    }
+    getSheetId() {
+        return this.id;
+    }
+    getName() {
+        return this.name;
+    }
+    clear() {
+        this.cells.clear();
     }
     getCell(r, c) {
         var _a;
@@ -172,7 +193,7 @@ class MockWorksheet {
     getLastRow() {
         let maxRow = -1;
         for (const key of this.cells.keys()) {
-            const r = parseInt(key.split(',')[0], 10);
+            const r = parseInt(key.split(',')[0]);
             if (r > maxRow) {
                 maxRow = r;
             }
@@ -180,7 +201,8 @@ class MockWorksheet {
         return maxRow + 1;
     }
     getLastColumn() {
-        return Math.max(...Array.from(this.cells.keys()).map(k => parseInt(k.split(',')[1], 10))) + 1;
+        const maxCol = Math.max(-1, ...Array.from(this.cells.keys()).map(k => parseInt(k.split(',')[1]))) + 1;
+        return maxCol;
     }
     getDataRange() {
         if (this.cells.size === 0) {
@@ -209,18 +231,71 @@ class MockWorksheet {
     getColumnWidth() { return 100; }
     autoResizeRows() { }
 }
-export class MockSpreadsheet {
+export class MockSpreadsheet extends MockMetadataContainer {
     constructor() {
+        super(...arguments);
         this.sheets = new Map();
+        this.sheetsById = new Map();
+        this.sheetIndex = 0;
+    }
+    getId() {
+        return 'test';
+    }
+    getSheetById(id) {
+        var _a;
+        return (_a = this.sheetsById.get(id)) !== null && _a !== void 0 ? _a : null;
     }
     getSheetByName(name) {
         var _a;
         return (_a = this.sheets.get(name)) !== null && _a !== void 0 ? _a : null;
     }
     insertSheet(name) {
-        const ws = new MockWorksheet(name);
+        this.sheetIndex += 1;
+        const ws = new MockWorksheet(name, this.sheetIndex);
         this.sheets.set(name, ws);
+        this.sheetsById.set(this.sheetIndex, ws);
         return ws;
+    }
+    getSheets() {
+        return Array.from(this.sheets.values());
+    }
+}
+export class MockMetadataFinder {
+    constructor(source) {
+        this.source = source;
+        this.key = '';
+    }
+    withKey(key) {
+        this.key = key;
+        return this;
+    }
+    find() {
+        if (this.source.metadata[this.key]) {
+            return [new MockMetadata(this)];
+        }
+        return [];
+    }
+}
+class MockMetadata {
+    constructor(finder) {
+        this.finder = finder;
+    }
+    getValue() {
+        var _a;
+        return (_a = this.finder.source.metadata[this.finder.key]) !== null && _a !== void 0 ? _a : null;
+    }
+    setValue(val) {
+        this.finder.source.metadata[this.finder.key] = val;
+        return this;
+    }
+    remove() {
+        delete this.finder.source.metadata[this.finder.key];
+    }
+    getKey() {
+        return this.finder.key;
+    }
+    getId() {
+        return 0;
     }
 }
 // Global mocks setup
