@@ -3,14 +3,7 @@
  */
 import { truthy, DEFAULT_APP_NAME } from './common.js';
 import { nodeToMarkdown } from './markdown.js';
-const HARD_LIMITS = {
-    CONTENT_LENGTH: 2000,
-    DESC_LENGTH: 4096,
-    EMBED_COUNT: 10,
-    PAYLOAD_LENGTH: 6000,
-};
 const SAFETY_MARGIN = 0.9;
-const LIMITS = Object.fromEntries(Object.entries(HARD_LIMITS).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
 function makeDomain(regex, logo, appname) {
     return { regex, appname, logo: URL_ROOT + logo };
@@ -117,35 +110,39 @@ export function sendDiscordMessage(embeds, feed, ctx) {
  *
  * https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
  */
-function applyLimits(ctx, messages) {
+function getSafeLimits(ctx) {
+    return Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
+}
+export function applyLimits(ctx, messages) {
     var _a;
+    const limits = getSafeLimits(ctx);
     for (let message of messages) {
-        if (((_a = message.content) !== null && _a !== void 0 ? _a : '').length > LIMITS.CONTENT_LENGTH) {
-            message.content = message.content.slice(0, LIMITS.CONTENT_LENGTH - 3) + '...';
+        if (((_a = message.content) !== null && _a !== void 0 ? _a : '').length > limits.CONTENT_LENGTH) {
+            message.content = message.content.slice(0, limits.CONTENT_LENGTH - 3) + '...';
         }
     }
     return messages
-        .map(e => splitMessageByEmbeds(e)).flat()
-        .map(e => splitMessageByPayloadSize(ctx, e)).flat();
+        .map(e => splitMessageByEmbeds(e, limits)).flat()
+        .map(e => splitMessageByPayloadSize(ctx, e, limits)).flat();
 }
-function splitMessageByEmbeds(message) {
+function splitMessageByEmbeds(message, limits) {
     const messages = [message];
-    while (message.embeds.length > LIMITS.EMBED_COUNT) {
+    while (message.embeds.length > limits.EMBED_COUNT) {
         const embeds = message.embeds;
-        message.embeds = embeds.slice(0, LIMITS.EMBED_COUNT);
-        message = { ...message, embeds: embeds.slice(LIMITS.EMBED_COUNT) };
+        message.embeds = embeds.slice(0, limits.EMBED_COUNT);
+        message = { ...message, embeds: embeds.slice(limits.EMBED_COUNT) };
         messages.push(message);
     }
     return messages;
 }
-function splitMessageByPayloadSize(ctx, message) {
+function splitMessageByPayloadSize(ctx, message, limits) {
     const payload = JSON.stringify(message);
     const messages = [message];
-    if (payload.length <= LIMITS.PAYLOAD_LENGTH) {
+    if (payload.length <= limits.PAYLOAD_LENGTH) {
         return messages;
     }
     const base = JSON.stringify({ ...message, embeds: [] }).length;
-    const budget = LIMITS.PAYLOAD_LENGTH - base;
+    const budget = limits.PAYLOAD_LENGTH - base;
     const embeds = message.embeds.map(e => [JSON.stringify(e).length, e]);
     message.embeds.length = 0;
     let total = 0;
