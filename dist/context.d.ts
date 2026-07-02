@@ -56,6 +56,12 @@ export declare class Context {
     logs: LOG_RECORD[];
     fetcher: Fetcher;
     logger: ((logs: LOG_RECORD[]) => void) | undefined;
+    limits: {
+        CONTENT_LENGTH: number;
+        DESC_LENGTH: number;
+        EMBED_COUNT: number;
+        PAYLOAD_LENGTH: number;
+    };
     now: number;
     purgedAt: number;
     spreadsheet: Spreadsheet;

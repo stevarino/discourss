@@ -67,7 +67,7 @@ function parseRssXml(content, feed, ctx) {
             msg.embeds.push(buildEmbed(ctx, feed.settings, item));
         }
         catch (e) {
-            console.error(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
+            console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
         }
     }
     // TODO: better separate this.

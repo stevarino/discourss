@@ -13,6 +13,7 @@ export function truthy(test, other) {
 export const CONFIG = {
     LOG_TO_STDERR: false,
     LOG_DEBUG: false,
+    LIMIT_SAFETY_MARGIN: 0.9,
 };
 export var STATUS;
 (function (STATUS) {

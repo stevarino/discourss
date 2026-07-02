@@ -8,6 +8,7 @@ export declare class MockResponse implements FetchResponse {
     private responseCode;
     private contentText;
     constructor(contentText: string, responseCode?: number);
+    getHeaders(): {};
     getResponseCode(): number;
     getContentText(): string;
 }
