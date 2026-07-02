@@ -37,7 +37,11 @@ function findDomain(embeds: Embed[]): number {
 }
 
 export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElement): Embed {
-  const html = Cheerio.load(xml.getChild('description')!.getValue());
+  const desc = xml.getChild('description');
+  if (!desc) {
+    throw new Error(`Missing description`);
+  }
+  const html = Cheerio.load(desc.getValue());
   const embed: Embed = {
     title: xml.getChild("title")?.getText(),
     url: xml.getChild('link')?.getText(),

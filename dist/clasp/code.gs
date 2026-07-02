@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-782-939-319-820';
+const version = '1-783-008-403-799';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -385,6 +385,11 @@ class Context {
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
+/**
+ * Regex to extract webhook ID.
+ * https://discordapp.com/api/webhooks/{id}/{key}
+ */
+const webhookIdPtn = new RegExp('api/webhooks/([^/]+)');
 const LOGS_TAB = 'Logs';
 function newTextStyle() {
     return SpreadsheetApp.newTextStyle();
@@ -497,9 +502,11 @@ function getFeedColumn(feedHeaders, header) {
 }
 function readFeedsTab(ctx) {
     const feeds = [];
+    const webhooks = new Set();
     for (const settings of Object.values(ctx.sheetSettings)) {
         if (!settings.isSet || !settings.worksheet)
             continue;
+        webhooks.add(settings.webhook.get());
         const values = settings.worksheet.getDataRange().getValues();
         for (let i = 0; i < values.length; i++) {
             // setup columns for dict-like lookup.
@@ -542,6 +549,8 @@ function readFeedsTab(ctx) {
             feeds.push(feed);
         }
     }
+    const webhookIds = Array.from(webhooks).map(s => { var _a, _b; return (_b = (_a = webhookIdPtn.exec(s)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : '?'; });
+    ctx.info(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
@@ -825,7 +834,11 @@ function findDomain(embeds) {
 }
 function buildEmbed(_, settings, xml) {
     var _a, _b;
-    const html = Cheerio.load(xml.getChild('description').getValue());
+    const desc = xml.getChild('description');
+    if (!desc) {
+        throw new Error(`Missing description`);
+    }
+    const html = Cheerio.load(desc.getValue());
     const embed = {
         title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
         url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
@@ -953,7 +966,12 @@ function parseRssXml(content, feed, ctx) {
             foundLast = true;
             break;
         }
-        msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+        try {
+            msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+        }
+        catch (e) {
+            console.error(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
+        }
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not

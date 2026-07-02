@@ -2,10 +2,17 @@
  * sheegts.js - functions related to processing the spreadsheet.
  */
 
+
+/**
+ * Regex to extract webhook ID. 
+ * https://discordapp.com/api/webhooks/{id}/{key}
+ */
+const webhookIdPtn = new RegExp('api/webhooks/([^/]+)');
+
 import {
   SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP,
   PartialFeed, FeedLookup, Feed, Spreadsheet, StyleBuilder,
-  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES
+  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES,
 } from './common.js';
 import {LOG_LEVEL, LOG_RECORD, errorToString, Context} from './context.js'
 
@@ -128,15 +135,16 @@ export function writeLogs(
   }
 }
 
-export function getFeedColumn(feedHeaders: CELL_VALUE[], header: string): number {
+function getFeedColumn(feedHeaders: CELL_VALUE[], header: string): number {
   return feedHeaders.indexOf(header)
 }
 
 export function readFeedsTab(ctx: Context): Feed[] {
   const feeds: Feed[] = [];
+  const webhooks = new Set<string>();
   for (const settings of Object.values(ctx.sheetSettings)) {
     if (!settings.isSet || !settings.worksheet) continue;
-    
+    webhooks.add(settings.webhook.get());
     const values = settings.worksheet.getDataRange().getValues() as (string | number)[][];
     for (let i = 0; i < values.length; i++) {
       // setup columns for dict-like lookup.
@@ -180,6 +188,9 @@ export function readFeedsTab(ctx: Context): Feed[] {
       feeds.push(feed as Feed);
     }
   }
+  const webhookIds = Array.from(webhooks).map(s => webhookIdPtn.exec(s)?.[1] ?? '?');
+  ctx.info(`webhookMap = ${JSON.stringify(
+    {sheet: ctx.spreadsheet.getId(), webhookIds})}`);
   // earliest first
   feeds.sort((a, b) => a.time - b.time);
   return feeds;

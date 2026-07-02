@@ -63,7 +63,12 @@ function parseRssXml(content, feed, ctx) {
             foundLast = true;
             break;
         }
-        msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+        try {
+            msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+        }
+        catch (e) {
+            console.error(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
+        }
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not

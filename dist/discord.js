@@ -33,7 +33,11 @@ function findDomain(embeds) {
 }
 export function buildEmbed(_, settings, xml) {
     var _a, _b;
-    const html = Cheerio.load(xml.getChild('description').getValue());
+    const desc = xml.getChild('description');
+    if (!desc) {
+        throw new Error(`Missing description`);
+    }
+    const html = Cheerio.load(desc.getValue());
     const embed = {
         title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
         url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
