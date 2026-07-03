@@ -21,6 +21,7 @@ export type ButtonSet = "OK"|"OK_CANCEL"|"YES_NO"|"YES_NO_CANCEL";
 export const CONFIG = {
   LOG_TO_STDERR: false,
   LOG_DEBUG: false,
+  LIMIT_SAFETY_MARGIN: 0.9,
 };
 
 export interface PartialFeed {
@@ -228,8 +229,9 @@ export interface FetchRequest {
 }
 
 export interface FetchResponse {
-  getResponseCode(): number
-  getContentText(): string;
+  getResponseCode(): number,
+  getContentText(): string,
+  getHeaders(): {},
 }
 
 export interface SidebarSheetsData {

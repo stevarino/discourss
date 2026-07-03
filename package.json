@@ -19,7 +19,7 @@
     "site-build": "tsc && node dist/build.js -- --web",
     "watch": "npx clasp logs --watch",
     "build": "tsc && npx eslint . && node dist/build.js -- --build",
-    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js dist/markdown.test.js"
+    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js dist/markdown.test.js dist/discord.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

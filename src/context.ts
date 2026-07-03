@@ -239,6 +239,14 @@ export class Context {
   fetcher: Fetcher;
   logger: ((logs: LOG_RECORD[]) => void) | undefined;
 
+  // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
+  limits = {
+    CONTENT_LENGTH: 2000,
+    DESC_LENGTH: 4096,
+    EMBED_COUNT: 10,
+    PAYLOAD_LENGTH: 6000,
+  }
+
   now: number;
   purgedAt: number;
   spreadsheet: Spreadsheet;

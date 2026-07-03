@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-782-939-319-820';
+const version = '1-783-029-533-272';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -42,6 +42,7 @@ function truthy(test, other) {
 const CONFIG = {
     LOG_TO_STDERR: false,
     LOG_DEBUG: false,
+    LIMIT_SAFETY_MARGIN: 0.9,
 };
 var STATUS;
 (function (STATUS) {
@@ -298,6 +299,13 @@ class Context {
     constructor(spreadsheet, logs) {
         this.sheetSettings = {};
         this.logs = [];
+        // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
+        this.limits = {
+            CONTENT_LENGTH: 2000,
+            DESC_LENGTH: 4096,
+            EMBED_COUNT: 10,
+            PAYLOAD_LENGTH: 6000,
+        };
         this.defaults = [];
         this.fetcher = new Fetcher();
         this.now = new Date().getTime();
@@ -385,6 +393,11 @@ class Context {
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
+/**
+ * Regex to extract webhook ID.
+ * https://discordapp.com/api/webhooks/{id}/{key}
+ */
+const webhookIdPtn = new RegExp('api/webhooks/([^/]+)');
 const LOGS_TAB = 'Logs';
 function newTextStyle() {
     return SpreadsheetApp.newTextStyle();
@@ -497,9 +510,11 @@ function getFeedColumn(feedHeaders, header) {
 }
 function readFeedsTab(ctx) {
     const feeds = [];
+    const webhooks = new Set();
     for (const settings of Object.values(ctx.sheetSettings)) {
         if (!settings.isSet || !settings.worksheet)
             continue;
+        webhooks.add(settings.webhook.get());
         const values = settings.worksheet.getDataRange().getValues();
         for (let i = 0; i < values.length; i++) {
             // setup columns for dict-like lookup.
@@ -542,6 +557,8 @@ function readFeedsTab(ctx) {
             feeds.push(feed);
         }
     }
+    const webhookIds = Array.from(webhooks).map(s => { var _a, _b; return (_b = (_a = webhookIdPtn.exec(s)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : '?'; });
+    ctx.info(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
@@ -795,6 +812,14 @@ function elementToMarkdown(node, path, children) {
 /**
  * feeds.js - Convert an RSS item to a Discord Embed.
  */
+const HARD_LIMITS = {
+    CONTENT_LENGTH: 2000,
+    DESC_LENGTH: 4096,
+    EMBED_COUNT: 10,
+    PAYLOAD_LENGTH: 6000,
+};
+const SAFETY_MARGIN = 0.9;
+const LIMITS = Object.fromEntries(Object.entries(HARD_LIMITS).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
 function makeDomain(regex, logo, appname) {
     return { regex, appname, logo: URL_ROOT + logo };
@@ -825,7 +850,11 @@ function findDomain(embeds) {
 }
 function buildEmbed(_, settings, xml) {
     var _a, _b;
-    const html = Cheerio.load(xml.getChild('description').getValue());
+    const desc = xml.getChild('description');
+    if (!desc) {
+        throw new Error(`Missing description`);
+    }
+    const html = Cheerio.load(desc.getValue());
     const embed = {
         title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
         url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
@@ -879,15 +908,71 @@ function sendDiscordMessage(embeds, feed, ctx) {
         msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
         msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
         // ctx.debug(`payload: ${JSON.stringify(msg)}`)
-        const response = ctx.fetch(settings.webhook.value, {
-            method: 'post',
-            payload: JSON.stringify(msg),
-            contentType: "application/json"
-        });
-        if (!response.getResponseCode().toString().startsWith('2')) {
-            throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
+        for (const splitMsg of applyLimits(ctx, [msg])) {
+            const response = ctx.fetch(settings.webhook.value, {
+                method: 'post',
+                payload: JSON.stringify(splitMsg),
+                contentType: "application/json"
+            });
+            console.info(response.getHeaders());
+            if (!response.getResponseCode().toString().startsWith('2')) {
+                throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
+            }
         }
     }
+}
+/**
+ * Discord limits us to 10 embedded objects, 6000 characters total.
+ *
+ * https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
+ */
+function applyLimits(ctx, messages) {
+    var _a;
+    for (let message of messages) {
+        if (((_a = message.content) !== null && _a !== void 0 ? _a : '').length > LIMITS.CONTENT_LENGTH) {
+            message.content = message.content.slice(0, LIMITS.CONTENT_LENGTH - 3) + '...';
+        }
+    }
+    return messages
+        .map(e => splitMessageByEmbeds(e)).flat()
+        .map(e => splitMessageByPayloadSize(ctx, e)).flat();
+}
+function splitMessageByEmbeds(message) {
+    const messages = [message];
+    while (message.embeds.length > LIMITS.EMBED_COUNT) {
+        const embeds = message.embeds;
+        message.embeds = embeds.slice(0, LIMITS.EMBED_COUNT);
+        message = { ...message, embeds: embeds.slice(LIMITS.EMBED_COUNT) };
+        messages.push(message);
+    }
+    return messages;
+}
+function splitMessageByPayloadSize(ctx, message) {
+    const payload = JSON.stringify(message);
+    const messages = [message];
+    if (payload.length <= LIMITS.PAYLOAD_LENGTH) {
+        return messages;
+    }
+    const base = JSON.stringify({ ...message, embeds: [] }).length;
+    const budget = LIMITS.PAYLOAD_LENGTH - base;
+    const embeds = message.embeds.map(e => [JSON.stringify(e).length, e]);
+    message.embeds.length = 0;
+    let total = 0;
+    while (embeds.length > 0) {
+        const [size, embed] = embeds.pop();
+        if (size > budget) {
+            ctx.warn(`Embed skipped due to length (${size} > ${budget})`);
+            continue;
+        }
+        if (total + size > budget) {
+            total = 0;
+            message = { ...message, embeds: [] };
+            messages.push(message);
+        }
+        total += size;
+        message.embeds.push(embed);
+    }
+    return messages;
 }
 
 /**
@@ -953,7 +1038,12 @@ function parseRssXml(content, feed, ctx) {
             foundLast = true;
             break;
         }
-        msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+        try {
+            msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+        }
+        catch (e) {
+            console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
+        }
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not
@@ -988,6 +1078,8 @@ function wrapper(method, ctx, func) {
             ctx = new Context(spreadsheet, logs);
         }
         ctx.logger = (logs) => writeLogs(spreadsheet, logs, (log) => ctx.error(log));
+        // apply safety tolerance (90%);
+        ctx.limits = Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)]));
         if (method) {
             ctx.info(`--- START ${method} (${version}) ---`);
         }
@@ -1030,7 +1122,12 @@ function execute(ctx) {
             continue;
         }
         if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
-            sendDiscordMessage(result.message.embeds, feed, ctx);
+            try {
+                sendDiscordMessage(result.message.embeds, feed, ctx);
+            }
+            catch (e) {
+                ctx.error(`Received error when sending data to discord: ${e}`);
+            }
         }
         updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
         if (result.guid) {

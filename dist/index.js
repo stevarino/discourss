@@ -18,6 +18,8 @@ function wrapper(method, ctx, func) {
             ctx = new Context(spreadsheet, logs);
         }
         ctx.logger = (logs) => writeLogs(spreadsheet, logs, (log) => ctx.error(log));
+        // apply safety tolerance (90%);
+        ctx.limits = Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)]));
         if (method) {
             ctx.info(`--- START ${method} (${version}) ---`);
         }
@@ -60,7 +62,12 @@ function execute(ctx) {
             continue;
         }
         if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
-            sendDiscordMessage(result.message.embeds, feed, ctx);
+            try {
+                sendDiscordMessage(result.message.embeds, feed, ctx);
+            }
+            catch (e) {
+                ctx.error(`Received error when sending data to discord: ${e}`);
+            }
         }
         updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
         if (result.guid) {

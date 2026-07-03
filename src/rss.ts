@@ -70,7 +70,11 @@ function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
       foundLast = true;
       break;
     }
-    msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+    try {
+      msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+    } catch (e) {
+      console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`)
+    }
   }
 
   // TODO: better separate this.

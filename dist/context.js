@@ -187,6 +187,13 @@ export class Context {
     constructor(spreadsheet, logs) {
         this.sheetSettings = {};
         this.logs = [];
+        // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
+        this.limits = {
+            CONTENT_LENGTH: 2000,
+            DESC_LENGTH: 4096,
+            EMBED_COUNT: 10,
+            PAYLOAD_LENGTH: 6000,
+        };
         this.defaults = [];
         this.fetcher = new Fetcher();
         this.now = new Date().getTime();

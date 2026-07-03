@@ -27,6 +27,10 @@ export class MockResponse implements FetchResponse {
     this.responseCode = responseCode;
   }
 
+  getHeaders(): {} {
+    return {}
+  }
+
   getResponseCode(): number {
     return this.responseCode;
   }

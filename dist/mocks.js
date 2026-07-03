@@ -16,6 +16,9 @@ export class MockResponse {
         this.contentText = contentText;
         this.responseCode = responseCode;
     }
+    getHeaders() {
+        return {};
+    }
     getResponseCode() {
         return this.responseCode;
     }

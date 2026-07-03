@@ -9,6 +9,7 @@ export type ButtonSet = "OK" | "OK_CANCEL" | "YES_NO" | "YES_NO_CANCEL";
 export declare const CONFIG: {
     LOG_TO_STDERR: boolean;
     LOG_DEBUG: boolean;
+    LIMIT_SAFETY_MARGIN: number;
 };
 export interface PartialFeed {
     index: number;
@@ -159,6 +160,7 @@ export interface FetchRequest {
 export interface FetchResponse {
     getResponseCode(): number;
     getContentText(): string;
+    getHeaders(): {};
 }
 export interface SidebarSheetsData {
     name: string;

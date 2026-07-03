@@ -1,7 +1,12 @@
 /**
  * sheegts.js - functions related to processing the spreadsheet.
  */
-import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP } from './common.js';
+/**
+ * Regex to extract webhook ID.
+ * https://discordapp.com/api/webhooks/{id}/{key}
+ */
+const webhookIdPtn = new RegExp('api/webhooks/([^/]+)');
+import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, } from './common.js';
 import { LOG_LEVEL, errorToString } from './context.js';
 export const LOGS_TAB = 'Logs';
 function newTextStyle() {
@@ -110,14 +115,16 @@ export function writeLogs(sheet, logs, logger) {
         logger(errorToString(e));
     }
 }
-export function getFeedColumn(feedHeaders, header) {
+function getFeedColumn(feedHeaders, header) {
     return feedHeaders.indexOf(header);
 }
 export function readFeedsTab(ctx) {
     const feeds = [];
+    const webhooks = new Set();
     for (const settings of Object.values(ctx.sheetSettings)) {
         if (!settings.isSet || !settings.worksheet)
             continue;
+        webhooks.add(settings.webhook.get());
         const values = settings.worksheet.getDataRange().getValues();
         for (let i = 0; i < values.length; i++) {
             // setup columns for dict-like lookup.
@@ -160,6 +167,8 @@ export function readFeedsTab(ctx) {
             feeds.push(feed);
         }
     }
+    const webhookIds = Array.from(webhooks).map(s => { var _a, _b; return (_b = (_a = webhookIdPtn.exec(s)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : '?'; });
+    ctx.info(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
