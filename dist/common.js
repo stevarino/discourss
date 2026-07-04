@@ -10,6 +10,16 @@ export function truthy(test, other) {
     }
     return other;
 }
+/**
+ * Regex to extract webhook ID.
+ * domain = discord | discordapp
+ * https://{domain}.com/api/webhooks/{id}/{key}
+ */
+const DISCORD_URL_RE = new RegExp('^https://discord(?:app)?\\.com/api/webhooks/([^/]+)/.+');
+export function getWebhookId(url) {
+    var _a;
+    return (_a = DISCORD_URL_RE.exec(url)) === null || _a === void 0 ? void 0 : _a[1];
+}
 export const CONFIG = {
     LOG_TO_STDERR: false,
     LOG_DEBUG: false,

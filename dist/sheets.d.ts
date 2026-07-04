@@ -1,5 +1,5 @@
 /**
- * sheegts.js - functions related to processing the spreadsheet.
+ * sheets.js - functions related to processing the spreadsheet.
  */
 import { Feed, Spreadsheet, CELL_VALUE, Worksheet, SHEET_HEADER_TYPES } from './common.js';
 import { LOG_RECORD, Context } from './context.js';

@@ -5,7 +5,7 @@
 import {
   CELL_VALUE, Spreadsheet, CONFIG, Fetcher, FetchRequest, FetchResponse,
   DEFAULT_APP_NAME, Metadata, Worksheet, SettingInterface, SettingsInterface,
-  SidebarSheetsData
+  SidebarSheetsData, getWebhookId
 } from './common.js';
 
 /** Purge logs every 10s */
@@ -110,11 +110,6 @@ class Setting<T extends CELL_VALUE> implements SettingInterface {
   }
 }
 
-
-// https://discordapp.com/api/webhooks/.../...
-// https://discord.com/api/webhooks/.../...
-const DISCORD_URL_RE = new RegExp('^https://discord(app)?\\.com/api/webhooks/.*');
-
 /** Settings specific to a single sheet. */
 class SheetSettings implements SettingsInterface {
   worksheet: Worksheet | undefined;
@@ -141,7 +136,7 @@ class SheetSettings implements SettingsInterface {
       '', 
       [
         [v => v !== '', 'Webhook must be set.'],
-        [v => DISCORD_URL_RE.test(String(v)), 'Invalid discord hook URL'],
+        [v => getWebhookId(v as string) !== undefined, 'Invalid discord hook URL'],
       ],
     );
     this.appname = new Setting('');
@@ -245,7 +240,7 @@ export class Context {
     DESC_LENGTH: 4096,
     EMBED_COUNT: 10,
     PAYLOAD_LENGTH: 6000,
-  }
+  };
 
   now: number;
   purgedAt: number;
