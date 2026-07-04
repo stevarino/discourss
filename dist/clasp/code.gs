@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-783-029-533-272';
+const version = '1-783-155-098-145';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -38,6 +38,16 @@ function truthy(test, other) {
         return test;
     }
     return other;
+}
+/**
+ * Regex to extract webhook ID.
+ * domain = discord | discordapp
+ * https://{domain}.com/api/webhooks/{id}/{key}
+ */
+const DISCORD_URL_RE = new RegExp('^https://discord(?:app)?\\.com/api/webhooks/([^/]+)/.+');
+function getWebhookId(url) {
+    var _a;
+    return (_a = DISCORD_URL_RE.exec(url)) === null || _a === void 0 ? void 0 : _a[1];
 }
 const CONFIG = {
     LOG_TO_STDERR: false,
@@ -203,9 +213,6 @@ class Setting {
         return undefined;
     }
 }
-// https://discordapp.com/api/webhooks/.../...
-// https://discord.com/api/webhooks/.../...
-const DISCORD_URL_RE = new RegExp('^https://discord(app)?\\.com/api/webhooks/.*');
 /** Settings specific to a single sheet. */
 class SheetSettings {
     constructor(worksheet) {
@@ -214,7 +221,7 @@ class SheetSettings {
         this.worksheet = worksheet;
         this.webhook = new Setting('', [
             [v => v !== '', 'Webhook must be set.'],
-            [v => DISCORD_URL_RE.test(String(v)), 'Invalid discord hook URL'],
+            [v => getWebhookId(v) !== undefined, 'Invalid discord hook URL'],
         ]);
         this.appname = new Setting('');
         this.avatar_url = new Setting('');
@@ -391,13 +398,8 @@ class Context {
 }
 
 /**
- * sheegts.js - functions related to processing the spreadsheet.
+ * sheets.js - functions related to processing the spreadsheet.
  */
-/**
- * Regex to extract webhook ID.
- * https://discordapp.com/api/webhooks/{id}/{key}
- */
-const webhookIdPtn = new RegExp('api/webhooks/([^/]+)');
 const LOGS_TAB = 'Logs';
 function newTextStyle() {
     return SpreadsheetApp.newTextStyle();
@@ -557,7 +559,7 @@ function readFeedsTab(ctx) {
             feeds.push(feed);
         }
     }
-    const webhookIds = Array.from(webhooks).map(s => { var _a, _b; return (_b = (_a = webhookIdPtn.exec(s)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : '?'; });
+    const webhookIds = Array.from(webhooks).map(s => { var _a; return (_a = getWebhookId(s)) !== null && _a !== void 0 ? _a : '?'; });
     ctx.info(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
@@ -809,25 +811,109 @@ function elementToMarkdown(node, path, children) {
     ];
 }
 
+class Ratelimiter {
+    constructor() {
+        // FIFO queue
+        this.queue = [];
+        // map of URLs to resetsAt epoch times.
+        this.urlResets = {};
+        this.getTime = () => new Date().getTime() / 1000;
+        this.sleep = (ms) => Utilities.sleep(ms);
+    }
+    /**
+     * Attempt to perform request, returns true if the request should be retried.
+     */
+    request(ctx, item) {
+        if (this.urlResets[item.url]) {
+            return true;
+        }
+        let response;
+        try {
+            response = ctx.fetch(item.url, {
+                method: 'post',
+                payload: item.payload,
+                contentType: "application/json"
+            });
+        }
+        catch (e) {
+            const id = getWebhookId(item.url);
+            console.warn(`Unable to make request to "${id}": ${e}`);
+            return false;
+        }
+        const statusCode = response.getResponseCode().toString();
+        const headers = response.getHeaders();
+        if (headers['x-ratelimit-remaining'] === '0') {
+            this.addUrl(item.url, headers);
+        }
+        if (statusCode.startsWith('2')) {
+            return false;
+        }
+        if (statusCode === '429') {
+            this.addUrl(item.url, headers);
+            return true;
+        }
+        ctx.warn(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
+        return false;
+    }
+    addUrl(url, headers) {
+        const reset = headers['x-ratelimit-reset'];
+        let time = 0;
+        if (reset) {
+            try {
+                time = parseInt(reset);
+            }
+            catch (e) {
+                console.warn(`Discord returned an invalid time: "${reset}"`);
+            }
+        }
+        if (!time) {
+            time = Math.ceil(this.getTime()) + 2;
+        }
+        this.urlResets[url] = time;
+    }
+    enqueue(ctx, url, payload) {
+        const item = { url, payload };
+        if (this.request(ctx, item)) {
+            this.queue.push(item);
+        }
+    }
+    processQueue(ctx) {
+        const now = this.getTime();
+        for (const [url, time] of Array.from(Object.entries(this.urlResets))) {
+            if (time < now) {
+                delete this.urlResets[url];
+            }
+        }
+        const items = [...this.queue];
+        this.queue.length = 0;
+        for (const item of items) {
+            if (!this.request(ctx, item)) {
+                this.queue.push(item);
+            }
+        }
+        if (this.queue.length) {
+            this.sleep(100);
+        }
+    }
+}
+
 /**
  * feeds.js - Convert an RSS item to a Discord Embed.
  */
-const HARD_LIMITS = {
-    CONTENT_LENGTH: 2000,
-    DESC_LENGTH: 4096,
-    EMBED_COUNT: 10,
-    PAYLOAD_LENGTH: 6000,
-};
 const SAFETY_MARGIN = 0.9;
-const LIMITS = Object.fromEntries(Object.entries(HARD_LIMITS).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
-function makeDomain(regex, logo, appname) {
-    return { regex, appname, logo: URL_ROOT + logo };
+class Domain {
+    constructor(regex, logo, appname) {
+        this.regex = regex;
+        this.appname = appname;
+        this.logo = URL_ROOT + logo;
+    }
 }
 const KNOWN_DOMAINS = [
-    makeDomain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
-    makeDomain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
+    new Domain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
+    new Domain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
 ];
+const RATE_LIMITER = new Ratelimiter();
 /**
  * Finds the index of the homogenous domain in embeds, or undefined if not
  * found or not homogenous.
@@ -908,17 +994,9 @@ function sendDiscordMessage(embeds, feed, ctx) {
         msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
         msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
         // ctx.debug(`payload: ${JSON.stringify(msg)}`)
-        for (const splitMsg of applyLimits(ctx, [msg])) {
-            const response = ctx.fetch(settings.webhook.value, {
-                method: 'post',
-                payload: JSON.stringify(splitMsg),
-                contentType: "application/json"
-            });
-            console.info(response.getHeaders());
-            if (!response.getResponseCode().toString().startsWith('2')) {
-                throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-            }
-        }
+        applyLimits(ctx, [msg]).map(payload => {
+            RATE_LIMITER.enqueue(ctx, settings.webhook.value, payload);
+        });
     }
 }
 /**
@@ -926,53 +1004,71 @@ function sendDiscordMessage(embeds, feed, ctx) {
  *
  * https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
  */
+function getSafeLimits(ctx) {
+    return Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
+}
 function applyLimits(ctx, messages) {
     var _a;
+    const limits = getSafeLimits(ctx);
     for (let message of messages) {
-        if (((_a = message.content) !== null && _a !== void 0 ? _a : '').length > LIMITS.CONTENT_LENGTH) {
-            message.content = message.content.slice(0, LIMITS.CONTENT_LENGTH - 3) + '...';
+        if (((_a = message.content) !== null && _a !== void 0 ? _a : '').length > limits.CONTENT_LENGTH) {
+            message.content = message.content.slice(0, limits.CONTENT_LENGTH - 3) + '...';
         }
     }
     return messages
-        .map(e => splitMessageByEmbeds(e)).flat()
-        .map(e => splitMessageByPayloadSize(ctx, e)).flat();
+        .map(e => splitMessageByEmbeds(e, limits)).flat()
+        .map(e => splitMessageByPayloadSize(ctx, e, limits)).flat();
 }
-function splitMessageByEmbeds(message) {
+function splitMessageByEmbeds(message, limits) {
     const messages = [message];
-    while (message.embeds.length > LIMITS.EMBED_COUNT) {
+    while (message.embeds.length > limits.EMBED_COUNT) {
         const embeds = message.embeds;
-        message.embeds = embeds.slice(0, LIMITS.EMBED_COUNT);
-        message = { ...message, embeds: embeds.slice(LIMITS.EMBED_COUNT) };
+        message.embeds = embeds.slice(0, limits.EMBED_COUNT);
+        message = { ...message, embeds: embeds.slice(limits.EMBED_COUNT) };
         messages.push(message);
     }
     return messages;
 }
-function splitMessageByPayloadSize(ctx, message) {
+function splitMessageByPayloadSize(ctx, message, limits) {
     const payload = JSON.stringify(message);
-    const messages = [message];
-    if (payload.length <= LIMITS.PAYLOAD_LENGTH) {
-        return messages;
+    if (payload.length <= limits.PAYLOAD_LENGTH) {
+        return [payload];
     }
-    const base = JSON.stringify({ ...message, embeds: [] }).length;
-    const budget = LIMITS.PAYLOAD_LENGTH - base;
-    const embeds = message.embeds.map(e => [JSON.stringify(e).length, e]);
-    message.embeds.length = 0;
+    // since we just care about string lengths, we're going to work in that rather
+    // than converting back and fourth.
+    const emptyPayload = JSON.stringify({ ...message, embeds: [] });
+    const target = '"embeds":[';
+    const index = emptyPayload.indexOf(target);
+    if (index === -1) {
+        // something really really broke.
+        throw new Error(`'Unable to find target in payload: ${emptyPayload}`);
+    }
+    const payloadPre = emptyPayload.slice(0, index + target.length);
+    const payloadPost = emptyPayload.slice(index + target.length);
+    const budget = limits.PAYLOAD_LENGTH - emptyPayload.length;
+    const embeds = message.embeds.map(e => JSON.stringify(e));
+    const stagedEmbeds = [];
+    const payloads = [];
     let total = 0;
     while (embeds.length > 0) {
-        const [size, embed] = embeds.pop();
-        if (size > budget) {
-            ctx.warn(`Embed skipped due to length (${size} > ${budget})`);
+        const embed = embeds.pop();
+        if (embed.length > budget) {
+            ctx.warn(`Embed skipped due to length (${embed.length} > ${budget})`);
             continue;
         }
-        if (total + size > budget) {
+        const extra = embed.length + 1;
+        if (total + extra - 1 > budget) {
+            payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
             total = 0;
-            message = { ...message, embeds: [] };
-            messages.push(message);
+            stagedEmbeds.length = 0;
         }
-        total += size;
-        message.embeds.push(embed);
+        stagedEmbeds.push(embed);
+        total += embed.length + extra;
     }
-    return messages;
+    if (stagedEmbeds.length) {
+        payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
+    }
+    return payloads;
 }
 
 /**

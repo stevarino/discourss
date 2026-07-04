@@ -15,8 +15,9 @@ describe('discord.ts applyLimits unit tests', () => {
             }];
         const result = applyLimits(ctx, messages);
         assert.strictEqual(result.length, 1);
-        assert.strictEqual((_a = result[0].content) === null || _a === void 0 ? void 0 : _a.length, 1800);
-        assert.strictEqual((_b = result[0].content) === null || _b === void 0 ? void 0 : _b.endsWith('...'), true);
+        let payloads = result.map(p => JSON.parse(p));
+        assert.strictEqual((_a = payloads[0].content) === null || _a === void 0 ? void 0 : _a.length, 1800);
+        assert.strictEqual((_b = payloads[0].content) === null || _b === void 0 ? void 0 : _b.endsWith('...'), true);
     });
     test('splits message if embed count exceeds EMBED_COUNT limit', () => {
         const [ctx] = buildMocks();
@@ -30,10 +31,11 @@ describe('discord.ts applyLimits unit tests', () => {
         const result = applyLimits(ctx, messages);
         // Should split into two messages: 9 embeds and 6 embeds
         assert.strictEqual(result.length, 2);
-        assert.strictEqual(result[0].embeds.length, 9);
-        assert.strictEqual(result[1].embeds.length, 6);
-        assert.strictEqual(result[0].content, 'hello');
-        assert.strictEqual(result[1].content, 'hello');
+        let payloads = result.map(p => JSON.parse(p));
+        assert.strictEqual(payloads[0].embeds.length, 9);
+        assert.strictEqual(payloads[1].embeds.length, 6);
+        assert.strictEqual(payloads[0].content, 'hello');
+        assert.strictEqual(payloads[1].content, 'hello');
     });
     test('splits message if payload size exceeds PAYLOAD_LENGTH limit', () => {
         const [ctx] = buildMocks();
@@ -49,10 +51,11 @@ describe('discord.ts applyLimits unit tests', () => {
         const result = applyLimits(ctx, messages);
         // The two embeds combined exceed 5400 bytes, so they should be split into two messages
         assert.strictEqual(result.length, 2);
-        assert.strictEqual(result[0].embeds.length, 1);
-        assert.strictEqual(result[1].embeds.length, 1);
-        assert.strictEqual(result[0].embeds[0].title, '2'); // Wait, splitMessageByPayloadSize uses pop() so it reverses the order
-        assert.strictEqual(result[1].embeds[0].title, '1');
+        let payloads = result.map(p => JSON.parse(p));
+        assert.strictEqual(payloads[0].embeds.length, 1);
+        assert.strictEqual(payloads[1].embeds.length, 1);
+        assert.strictEqual(payloads[0].embeds[0].title, '2'); // Wait, splitMessageByPayloadSize uses pop() so it reverses the order
+        assert.strictEqual(payloads[1].embeds[0].title, '1');
     });
     test('drops embed if a single embed exceeds PAYLOAD_LENGTH budget', () => {
         const [ctx] = buildMocks();
@@ -66,7 +69,8 @@ describe('discord.ts applyLimits unit tests', () => {
         const result = applyLimits(ctx, messages);
         // The huge embed is dropped. pop() processes normalEmbed first, then huge embed.
         assert.strictEqual(result.length, 1);
-        assert.strictEqual(result[0].embeds.length, 1);
-        assert.strictEqual(result[0].embeds[0].title, 'normal');
+        const payload = JSON.parse(result[0]);
+        assert.strictEqual(payload.embeds.length, 1);
+        assert.strictEqual(payload.embeds[0].title, 'normal');
     });
 });

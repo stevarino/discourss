@@ -3,21 +3,27 @@
  */
 
 import { Context } from './context.js';
-import { Embed, Message, Feed, truthy, XmlElement, DEFAULT_APP_NAME, SettingsInterface, FetchRequest } from './common.js';
+import { Embed, Message, Feed, truthy, XmlElement, DEFAULT_APP_NAME, SettingsInterface } from './common.js';
 import { nodeToMarkdown } from './markdown.js';
+import { Ratelimiter } from './ratelimiter.js';
 
 const SAFETY_MARGIN = 0.9;
 
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
 
-function makeDomain(regex: RegExp, logo: string, appname: string) {
-  return {regex, appname, logo: URL_ROOT + logo};
+class Domain {
+  logo: string;
+  constructor(public regex: RegExp, logo: string, public appname: string) {
+    this.logo = URL_ROOT + logo;
+  }
 }
 
 const KNOWN_DOMAINS = [
-  makeDomain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
-  makeDomain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
+  new Domain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
+  new Domain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
 ];
+
+const RATE_LIMITER = new Ratelimiter();
 
 /** 
  * Finds the index of the homogenous domain in embeds, or undefined if not
@@ -100,17 +106,9 @@ export function sendDiscordMessage(embeds: Embed[], feed: Feed, ctx: Context): v
     msg.username = truthy(settings.appname.value, domain?.appname) ?? DEFAULT_APP_NAME;
     // ctx.debug(`payload: ${JSON.stringify(msg)}`)
 
-    for (const splitMsg of applyLimits(ctx, [msg])) {
-      const response = ctx.fetch(settings.webhook.value, {
-        method: 'post',
-        payload: JSON.stringify(splitMsg),
-        contentType: "application/json"
-      } as FetchRequest);
-      console.info(response.getHeaders())
-      if (!response.getResponseCode().toString().startsWith('2')) {
-        throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-      }
-    }
+    applyLimits(ctx, [msg]).map(payload => {
+      RATE_LIMITER.enqueue(ctx, settings.webhook.value, payload);
+    })
   }
 }
 
@@ -125,7 +123,7 @@ function getSafeLimits(ctx: Context) {
   )) as typeof ctx.limits;
 }
 
-export function applyLimits(ctx: Context, messages: Message[]): Message[] {
+export function applyLimits(ctx: Context, messages: Message[]): string[] {
   const limits = getSafeLimits(ctx);
   for (let message of messages) {
     if ((message.content ?? '').length > limits.CONTENT_LENGTH) {
@@ -150,28 +148,42 @@ function splitMessageByEmbeds(message: Message, limits: ReturnType<typeof getSaf
 
 function splitMessageByPayloadSize(ctx: Context, message: Message, limits: ReturnType<typeof getSafeLimits>) {
   const payload = JSON.stringify(message);
-  const messages: Message[] = [message];
   if (payload.length <= limits.PAYLOAD_LENGTH) {
-    return messages;
+    return [payload];
   }
-  const base = JSON.stringify({...message, embeds: []}).length;
-  const budget = limits.PAYLOAD_LENGTH - base;
-  const embeds = message.embeds.map(e => [JSON.stringify(e).length, e]) as [number, Embed][];
-  message.embeds.length = 0;
+  // since we just care about string lengths, we're going to work in that rather
+  // than converting back and fourth.
+  const emptyPayload = JSON.stringify({...message, embeds: []});
+  const target = '"embeds":[';
+  const index = emptyPayload.indexOf(target);
+  if (index === -1) {
+    // something really really broke.
+    throw new Error(`'Unable to find target in payload: ${emptyPayload}`);
+  }
+  const payloadPre = emptyPayload.slice(0, index + target.length)
+  const payloadPost = emptyPayload.slice(index + target.length)
+  const budget = limits.PAYLOAD_LENGTH - emptyPayload.length;
+  const embeds = message.embeds.map(e => JSON.stringify(e));
+  const stagedEmbeds: string[] = [];
+  const payloads: string[] = [];
   let total = 0;
   while (embeds.length > 0) {
-    const [size, embed] = embeds.pop()!;
-    if (size > budget) {
-      ctx.warn(`Embed skipped due to length (${size} > ${budget})`);
+    const embed = embeds.pop()!;
+    if (embed.length > budget) {
+      ctx.warn(`Embed skipped due to length (${embed.length} > ${budget})`);
       continue;
     }
-    if (total + size > budget) {
+    const extra = embed.length + 1;
+    if (total + extra -1 > budget) {
+      payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
       total = 0;
-      message = {...message, embeds: []};
-      messages.push(message);
+      stagedEmbeds.length = 0;
     }
-    total += size;
-    message.embeds.push(embed);
+    stagedEmbeds.push(embed)
+    total += embed.length + extra;
   }
-  return messages
+  if (stagedEmbeds.length) {
+    payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
+  }
+  return payloads
 }

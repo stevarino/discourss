@@ -1,7 +1,7 @@
 /**
  * context.js - Context and Logging infrastructure.
  */
-import { CONFIG, Fetcher, DEFAULT_APP_NAME } from './common.js';
+import { CONFIG, Fetcher, DEFAULT_APP_NAME, getWebhookId } from './common.js';
 /** Purge logs every 10s */
 const PURGE_INTERVAL = 5000;
 export var LOG_LEVEL;
@@ -91,9 +91,6 @@ class Setting {
         return undefined;
     }
 }
-// https://discordapp.com/api/webhooks/.../...
-// https://discord.com/api/webhooks/.../...
-const DISCORD_URL_RE = new RegExp('^https://discord(app)?\\.com/api/webhooks/.*');
 /** Settings specific to a single sheet. */
 class SheetSettings {
     constructor(worksheet) {
@@ -102,7 +99,7 @@ class SheetSettings {
         this.worksheet = worksheet;
         this.webhook = new Setting('', [
             [v => v !== '', 'Webhook must be set.'],
-            [v => DISCORD_URL_RE.test(String(v)), 'Invalid discord hook URL'],
+            [v => getWebhookId(v) !== undefined, 'Invalid discord hook URL'],
         ]);
         this.appname = new Setting('');
         this.avatar_url = new Setting('');

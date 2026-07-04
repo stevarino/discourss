@@ -4,6 +4,7 @@
 /** If test is truthy, return test, otherwise return other (or undefined) */
 export declare const DEFAULT_APP_NAME = "DiscouRSS";
 export declare function truthy<T>(test: T, other?: T): T | undefined;
+export declare function getWebhookId(url: string): string | undefined;
 export type Button = "CLOSE" | "OK" | "CANCEL" | "YES" | "NO";
 export type ButtonSet = "OK" | "OK_CANCEL" | "YES_NO" | "YES_NO_CANCEL";
 export declare const CONFIG: {
@@ -160,7 +161,7 @@ export interface FetchRequest {
 export interface FetchResponse {
     getResponseCode(): number;
     getContentText(): string;
-    getHeaders(): {};
+    getHeaders(): object;
 }
 export interface SidebarSheetsData {
     name: string;

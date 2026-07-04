@@ -3,15 +3,21 @@
  */
 import { truthy, DEFAULT_APP_NAME } from './common.js';
 import { nodeToMarkdown } from './markdown.js';
+import { Ratelimiter } from './ratelimiter.js';
 const SAFETY_MARGIN = 0.9;
 const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
-function makeDomain(regex, logo, appname) {
-    return { regex, appname, logo: URL_ROOT + logo };
+class Domain {
+    constructor(regex, logo, appname) {
+        this.regex = regex;
+        this.appname = appname;
+        this.logo = URL_ROOT + logo;
+    }
 }
 const KNOWN_DOMAINS = [
-    makeDomain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
-    makeDomain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
+    new Domain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
+    new Domain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
 ];
+const RATE_LIMITER = new Ratelimiter();
 /**
  * Finds the index of the homogenous domain in embeds, or undefined if not
  * found or not homogenous.
@@ -92,17 +98,9 @@ export function sendDiscordMessage(embeds, feed, ctx) {
         msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
         msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
         // ctx.debug(`payload: ${JSON.stringify(msg)}`)
-        for (const splitMsg of applyLimits(ctx, [msg])) {
-            const response = ctx.fetch(settings.webhook.value, {
-                method: 'post',
-                payload: JSON.stringify(splitMsg),
-                contentType: "application/json"
-            });
-            console.info(response.getHeaders());
-            if (!response.getResponseCode().toString().startsWith('2')) {
-                throw new Error(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-            }
-        }
+        applyLimits(ctx, [msg]).map(payload => {
+            RATE_LIMITER.enqueue(ctx, settings.webhook.value, payload);
+        });
     }
 }
 /**
@@ -137,28 +135,42 @@ function splitMessageByEmbeds(message, limits) {
 }
 function splitMessageByPayloadSize(ctx, message, limits) {
     const payload = JSON.stringify(message);
-    const messages = [message];
     if (payload.length <= limits.PAYLOAD_LENGTH) {
-        return messages;
+        return [payload];
     }
-    const base = JSON.stringify({ ...message, embeds: [] }).length;
-    const budget = limits.PAYLOAD_LENGTH - base;
-    const embeds = message.embeds.map(e => [JSON.stringify(e).length, e]);
-    message.embeds.length = 0;
+    // since we just care about string lengths, we're going to work in that rather
+    // than converting back and fourth.
+    const emptyPayload = JSON.stringify({ ...message, embeds: [] });
+    const target = '"embeds":[';
+    const index = emptyPayload.indexOf(target);
+    if (index === -1) {
+        // something really really broke.
+        throw new Error(`'Unable to find target in payload: ${emptyPayload}`);
+    }
+    const payloadPre = emptyPayload.slice(0, index + target.length);
+    const payloadPost = emptyPayload.slice(index + target.length);
+    const budget = limits.PAYLOAD_LENGTH - emptyPayload.length;
+    const embeds = message.embeds.map(e => JSON.stringify(e));
+    const stagedEmbeds = [];
+    const payloads = [];
     let total = 0;
     while (embeds.length > 0) {
-        const [size, embed] = embeds.pop();
-        if (size > budget) {
-            ctx.warn(`Embed skipped due to length (${size} > ${budget})`);
+        const embed = embeds.pop();
+        if (embed.length > budget) {
+            ctx.warn(`Embed skipped due to length (${embed.length} > ${budget})`);
             continue;
         }
-        if (total + size > budget) {
+        const extra = embed.length + 1;
+        if (total + extra - 1 > budget) {
+            payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
             total = 0;
-            message = { ...message, embeds: [] };
-            messages.push(message);
+            stagedEmbeds.length = 0;
         }
-        total += size;
-        message.embeds.push(embed);
+        stagedEmbeds.push(embed);
+        total += embed.length + extra;
     }
-    return messages;
+    if (stagedEmbeds.length) {
+        payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
+    }
+    return payloads;
 }

@@ -14,6 +14,18 @@ export function truthy<T>(test: T, other?: T): T | undefined {
   return other;
 }
 
+/**
+ * Regex to extract webhook ID. 
+ * domain = discord | discordapp
+ * https://{domain}.com/api/webhooks/{id}/{key}
+ */
+const DISCORD_URL_RE = new RegExp('^https://discord(?:app)?\\.com/api/webhooks/([^/]+)/.+');
+export function getWebhookId(url: string): string|undefined {
+  return DISCORD_URL_RE.exec(url)?.[1]
+}
+
+
+
 // from GoogleAppsScript.Base.Button and GoogleAppsScript.Base.ButtonSet
 export type Button = "CLOSE"|"OK"|"CANCEL"|"YES"|"NO";
 export type ButtonSet = "OK"|"OK_CANCEL"|"YES_NO"|"YES_NO_CANCEL";
@@ -231,7 +243,7 @@ export interface FetchRequest {
 export interface FetchResponse {
   getResponseCode(): number,
   getContentText(): string,
-  getHeaders(): {},
+  getHeaders(): object,
 }
 
 export interface SidebarSheetsData {

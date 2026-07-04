@@ -8,4 +8,4 @@ export declare function buildEmbed(_: Context, settings: SettingsInterface, xml:
  * Send a message through discord using the webhook.
  */
 export declare function sendDiscordMessage(embeds: Embed[], feed: Feed, ctx: Context): void;
-export declare function applyLimits(ctx: Context, messages: Message[]): Message[];
+export declare function applyLimits(ctx: Context, messages: Message[]): string[];

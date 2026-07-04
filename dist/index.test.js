@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { run } from './index.js';
 import { buildMocks } from './mocks.js';
 // --- Setup Global UrlFetchApp Mock ---
-const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/test';
+const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/123/test';
 const FEED_1 = 'https://example.com/feed1';
 const FEED_2 = 'https://example.com/feed2';
 const SAMPLE_RSS_FEED = `

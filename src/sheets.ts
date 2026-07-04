@@ -1,18 +1,11 @@
 /**
- * sheegts.js - functions related to processing the spreadsheet.
+ * sheets.js - functions related to processing the spreadsheet.
  */
-
-
-/**
- * Regex to extract webhook ID. 
- * https://discordapp.com/api/webhooks/{id}/{key}
- */
-const webhookIdPtn = new RegExp('api/webhooks/([^/]+)');
 
 import {
-  SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP,
-  PartialFeed, FeedLookup, Feed, Spreadsheet, StyleBuilder,
-  CELL_VALUE, Worksheet, SHEET_HEADER_TYPES,
+  SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, PartialFeed, FeedLookup,
+  Feed, Spreadsheet, StyleBuilder, CELL_VALUE, Worksheet, SHEET_HEADER_TYPES,
+  getWebhookId,
 } from './common.js';
 import {LOG_LEVEL, LOG_RECORD, errorToString, Context} from './context.js'
 
@@ -188,7 +181,7 @@ export function readFeedsTab(ctx: Context): Feed[] {
       feeds.push(feed as Feed);
     }
   }
-  const webhookIds = Array.from(webhooks).map(s => webhookIdPtn.exec(s)?.[1] ?? '?');
+  const webhookIds = Array.from(webhooks).map(s => getWebhookId(s) ?? '?');
   ctx.info(`webhookMap = ${JSON.stringify(
     {sheet: ctx.spreadsheet.getId(), webhookIds})}`);
   // earliest first
