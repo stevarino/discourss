@@ -2,6 +2,12 @@
 
 DiscouRSS is a Google Sheets Addon that reads RSS Feeds (such as news, Letterboxd reviews, GoodReads activity) and pipe those events to a Discord channel.
 
+<p align="center">
+  <a href="https://youtu.be/oeZnfSZpV84">
+    <img src="/img/discourss-video.png" alt="Video showing a DiscouRSS demonstration." />
+  </a>
+</p>
+
 The configuration and execution is handled entirely within Google Sheets, allowing for easy management with no cost (beyond a Google account).
 
 ## Features
