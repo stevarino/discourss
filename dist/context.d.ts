@@ -2,6 +2,7 @@
  * context.js - Context and Logging infrastructure.
  */
 import { CELL_VALUE, Spreadsheet, Fetcher, FetchRequest, FetchResponse, Metadata, Worksheet, SettingInterface, SettingsInterface, SidebarSheetsData } from './common.js';
+import { Ratelimiter } from './ratelimiter.js';
 export type LOG_RECORD = [number, LOG_LEVEL, string];
 export declare enum LOG_LEVEL {
     ERROR = 0,
@@ -27,7 +28,7 @@ declare class Setting<T extends CELL_VALUE> implements SettingInterface {
     validate(value?: T): string | undefined;
 }
 /** Settings specific to a single sheet. */
-declare class SheetSettings implements SettingsInterface {
+export declare class SheetSettings implements SettingsInterface {
     worksheet: Worksheet | undefined;
     feedHeaders: CELL_VALUE[];
     isSet: boolean;
@@ -56,6 +57,7 @@ export declare class Context {
     logs: LOG_RECORD[];
     fetcher: Fetcher;
     logger: ((logs: LOG_RECORD[]) => void) | undefined;
+    rateLimiter: Ratelimiter;
     limits: {
         CONTENT_LENGTH: number;
         DESC_LENGTH: number;

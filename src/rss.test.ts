@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { processFeed } from './rss.js';
 import { buildMocks, MockFetcher } from './mocks.js';
 import { Feed, STATUS } from './common.js';
+import { Context, SheetSettings } from './context.js';
 
 const SAMPLE_RSS_FEED = `
 <rss version="2.0">
@@ -26,6 +27,24 @@ const SAMPLE_RSS_FEED = `
 </rss>
 `;
 
+function newFeed(ctx: Context, settings: SheetSettings, extra?: object) {
+  return Object.assign({
+      index: 1,
+      feed: 'https://example.com/rss',
+      time: ctx.now - 3 * 3600, // 3 hours ago
+      discord: 'test-webhook',
+      guid: 'guid-2',
+      status: 'ok',
+      settings: settings,
+      counters: {
+        successful: 0,
+        error: 0,
+        invalid: 0,
+        unprocessed: 0,
+      }
+    }, extra ?? {});
+}
+
 // --- Tests ---
 
 describe('rss.ts unit tests', () => {
@@ -34,15 +53,7 @@ describe('rss.ts unit tests', () => {
     const settings = ctx.sheetSettings[ws.getSheetId()];
     settings.feed_frequency.value = 3600; // 1 hour limit
 
-    const feed: Feed = {
-      index: 1,
-      feed: 'https://example.com/rss',
-      time: ctx.now - 1800 * 1000, // 30 mins ago
-      discord: 'test-webhook',
-      guid: 'guid-0',
-      status: 'ok',
-      settings: settings
-    };
+    const feed = newFeed(ctx, settings, {time: ctx.now - 1800});;
 
     const result = processFeed(feed, ctx);
     assert.strictEqual(result.status, STATUS.SKIP);
@@ -56,18 +67,10 @@ describe('rss.ts unit tests', () => {
 
     mockFetcher.addMock(url, 'Internal Server Error', 500);
 
-    const feed: Feed = {
-      index: 1,
-      feed: url,
-      time: ctx.now - 7200 * 1000, // 2 hours ago (safely passes frequency check)
-      discord: 'test-webhook',
-      guid: 'guid-0',
-      status: 'ok',
-      settings: settings,
-    };
+    const feed: Feed = newFeed(ctx, settings);
 
     const result = processFeed(feed, ctx);
-    assert.strictEqual(result.status, STATUS.ERROR);
+    assert.strictEqual(result.status, STATUS.ERROR, 'did not return ERROR status');
     assert.match(result.status_text || '', /HTTP Response code: 500/);
   });
 
@@ -79,33 +82,25 @@ describe('rss.ts unit tests', () => {
 
     mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
-    const feed: Feed = {
-      index: 1,
-      feed: url,
-      time: ctx.now - 7200 * 1000,
-      discord: 'test-webhook',
-      guid: '0', // completely new feed, parses everything
-      status: 'ok',
-      settings: settings,
-    };
+    const feed: Feed = newFeed(ctx, settings, {guid: '0'});
 
     const result = processFeed(feed, ctx);
-    assert.strictEqual(result.status, STATUS.OK);
+    assert.strictEqual(result.status, STATUS.OK, 'Incorrect status');
     assert.strictEqual(result.status_text, 'found 2');
     assert.strictEqual(result.guid, 'guid-1'); // first item is the latest guid
 
-    const embeds = result.message?.embeds || [];
+    const embeds = result.embeds || [];
     assert.strictEqual(embeds.length, 2);
 
-    // Item 1 verification
-    assert.strictEqual(embeds[0].title, 'Item 1');
-    assert.strictEqual(embeds[0].url, 'https://example.com/item1');
-    assert.strictEqual(embeds[0].description, 'Paragraph 1\n\nParagraph 2');
-
     // Item 2 verification
-    assert.strictEqual(embeds[1].title, 'Item 2');
-    assert.strictEqual(embeds[1].url, 'https://example.com/item2');
-    assert.strictEqual(embeds[1].description, 'Paragraph A');
+    assert.strictEqual(embeds[0].title, 'Item 2');
+    assert.strictEqual(embeds[0].url, 'https://example.com/item2');
+    assert.strictEqual(embeds[0].description, 'Paragraph A');
+
+    // Item 1 verification
+    assert.strictEqual(embeds[1].title, 'Item 1');
+    assert.strictEqual(embeds[1].url, 'https://example.com/item1');
+    assert.strictEqual(embeds[1].description, 'Paragraph 1\n\nParagraph 2');
   });
 
   test('extracts images as main image or thumbnail based on configuration', () => {
@@ -113,15 +108,7 @@ describe('rss.ts unit tests', () => {
     const settings = ctx.sheetSettings[ws.getSheetId()];
 
     const url = 'https://example.com/rss';
-    const feed: Feed = {
-      index: 1,
-      feed: url,
-      time: Date.now() - 7200 * 1000,
-      discord: 'test-webhook',
-      guid: '0',
-      status: 'ok',
-      settings: settings
-    };
+    const feed = newFeed(ctx, settings);
 
     // Case 1: image_format = 'image'
     {
@@ -129,7 +116,8 @@ describe('rss.ts unit tests', () => {
       (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
-      const embeds = result.message?.embeds || [];
+      const embeds = result.embeds || [];
+      assert.strictEqual(embeds.length, 1, 'only one embed expected');
       assert.strictEqual(embeds[0].image?.url, 'https://example.com/image1.png');
       assert.strictEqual(embeds[0].thumbnail, undefined);
     }
@@ -140,7 +128,7 @@ describe('rss.ts unit tests', () => {
       (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
-      const embeds = result.message?.embeds || [];
+      const embeds = result.embeds || [];
       assert.strictEqual(embeds[0].image, undefined);
       assert.strictEqual(embeds[0].thumbnail?.url, 'https://example.com/image1.png');
     }
@@ -151,7 +139,7 @@ describe('rss.ts unit tests', () => {
       (ctx.fetcher as MockFetcher).addMock(url, SAMPLE_RSS_FEED, 204);
 
       const result = processFeed(feed, ctx);
-      const embeds = result.message?.embeds || [];
+      const embeds = result.embeds || [];
       assert.strictEqual(embeds[0].image, undefined);
       assert.strictEqual(embeds[0].thumbnail, undefined);
     }
@@ -166,22 +154,16 @@ describe('rss.ts unit tests', () => {
 
     mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
-    const feed: Feed = {
-      index: 1,
-      feed: url,
-      time: ctx.now - 7200 * 1000,
-      discord: 'test-webhook',
+    const feed: Feed = newFeed(ctx, settings, {
       guid: 'guid-2', // We have already seen Item 2, so only Item 1 (latest) is new
-      status: 'ok',
-      settings: settings
-    };
+    });
 
     const result = processFeed(feed, ctx);
     assert.strictEqual(result.status, STATUS.OK);
     assert.strictEqual(result.status_text, 'found 1');
     assert.strictEqual(result.guid, 'guid-1');
 
-    const embeds = result.message?.embeds || [];
+    const embeds = result.embeds || [];
     assert.strictEqual(embeds.length, 1);
     assert.strictEqual(embeds[0].title, 'Item 1');
   });
@@ -194,20 +176,14 @@ describe('rss.ts unit tests', () => {
 
     mockFetcher.addMock(url, SAMPLE_RSS_FEED, 204);
 
-    const feed: Feed = {
-      index: 1,
-      feed: url,
-      time: ctx.now - 7200 * 1000,
-      discord: 'test-webhook',
+    const feed: Feed = newFeed(ctx, settings, {
       guid: 'non-existent-guid', // last seen guid isn't in this XML payload
-      status: 'ok',
-      settings: settings
-    };
+    });
 
     const result = processFeed(feed, ctx);
-    assert.strictEqual(result.status, STATUS.OK);
+    assert.strictEqual(result.status, STATUS.OK, 'Incorrect status.');
     assert.strictEqual(result.status_text, 'new feed');
     assert.strictEqual(result.guid, 'guid-1');
-    assert.strictEqual(result.message?.embeds.length, 0); // embeds cleared to avoid flooding
+    assert.strictEqual(result.embeds?.length, 0, 'No embeds to prevent spamming');
   });
 });

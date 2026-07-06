@@ -14,6 +14,13 @@ export function truthy<T>(test: T, other?: T): T | undefined {
   return other;
 }
 
+export function first<T>(...tests: T[]): T|undefined {
+  for (const test of tests) {
+    if (test) return test;
+  }
+  return undefined;
+}
+
 /**
  * Regex to extract webhook ID. 
  * domain = discord | discordapp
@@ -34,6 +41,7 @@ export const CONFIG = {
   LOG_TO_STDERR: false,
   LOG_DEBUG: false,
   LIMIT_SAFETY_MARGIN: 0.9,
+  RUNTIME: 27,
 };
 
 export interface PartialFeed {
@@ -46,7 +54,33 @@ export interface PartialFeed {
   status?: string,
 }
 
-export type Feed = PartialFeed & {time: number, feed: string};
+/** Represents a row in a sheet pointing to an RSS feed. */
+export type Feed = PartialFeed & {
+  time: number,
+  feed: string,
+  result?: Result,
+  counters: FeedCounters
+};
+
+interface FeedCounters {
+  successful: number,
+  error: number,
+  unprocessed: number,
+  invalid: number,
+}
+
+export function renderFeedCounters(counters: FeedCounters): string {
+  const output: string[] = [];
+  for (const [key, value] of Object.entries(counters)) {
+    if (value) {
+      output.push(`${value} ${key}`)
+    }
+  }
+  if (output.length === 0) {
+    return 'no';
+  }
+  return output.join('; ') + ' items';
+}
 
 export type FeedLookup = Record<keyof PartialFeed, string|number|undefined|SettingsInterface>;
 
@@ -57,6 +91,8 @@ export interface Embed {
   thumbnail?: {url: string}|undefined,
   image?: {url: string}|undefined,
   fields: {name: string, value: string}[],
+  footer?: string,
+  _ts?: number,
 }
 
 export interface Message {
@@ -75,12 +111,12 @@ export enum STATUS {
   NONE,
 };
 
-// Result from parsing a feed.
+/** Set of Discord Webhook Messages from a sheet. */
 export interface Result {
   status: STATUS,
   status_text: string,
   guid?: string,
-  message?: Message,
+  embeds?: Embed[],
   sheets_update?: [SHEET_HEADERS_FIELDS, string|number][],
 }
 
@@ -300,3 +336,28 @@ export interface SettingsInterface {
 
   feedCount: number;
 }
+
+export interface FeedRequest {
+  epoch: number,
+  feed: Feed,
+  payload: string,
+}
+
+export interface IContext {
+  loadSettings(): void;
+  getSettings(): Record<string, SidebarSheetsData>;
+  getSheetData(sheetId: string): SidebarSheetsData;
+  getWorksheet(sheetId: string): Worksheet | undefined;
+  setSettings(sheetId: string, values: [string, CELL_VALUE][]): string[];
+  deleteSettings(sheetId: string): void;
+
+  reset(spreadsheet?: Spreadsheet): void;
+  
+  fetch(url: string, params?: FetchRequest): FetchResponse;
+
+  error(message: string): void;
+  warn(message: string): void;
+  info(message: string): void;
+  debug(message: string): void;
+}
+

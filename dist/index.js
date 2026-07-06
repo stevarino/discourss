@@ -1,13 +1,13 @@
 /**
  * index.js - main entry point for code
  */
-import { SHEET_HEADERS, STATUS, DEFAULT_APP_NAME, CONFIG, } from './common.js';
+import { STATUS, DEFAULT_APP_NAME, CONFIG, renderFeedCounters } from './common.js';
 import { LOG_LEVEL, errorToString, log, Context } from './context.js';
-import { readFeedsTab, updateFeedsTab, writeLogs, setupFeedsTab, } from './sheets.js';
+import { readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus, } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
-import { sendDiscordMessage } from './discord.js';
-CONFIG.LOG_TO_STDERR = true;
+import { normalizeMessages } from './discord.js';
+CONFIG.LOG_TO_STDERR = false;
 CONFIG.LOG_DEBUG = false;
 /** A common execution wrapper. Handles context and logging. */
 function wrapper(method, ctx, func) {
@@ -38,14 +38,11 @@ function wrapper(method, ctx, func) {
 }
 /** Scan the Feeds table, read RSS feeds, and write to Discord. */
 function execute(ctx) {
-    var _a, _b;
-    const feeds = readFeedsTab(ctx);
+    var _a, _b, _c, _d;
+    const feeds = readFeedsTabs(ctx);
     ctx.info(`Read ${feeds.length} rows`);
+    const requests = [];
     for (const feed of feeds) {
-        const sheet = feed.settings.worksheet;
-        if (feed.settings.feedCount <= 0) {
-            continue;
-        }
         let result;
         try {
             result = processFeed(feed, ctx);
@@ -53,33 +50,59 @@ function execute(ctx) {
         catch (e) {
             // even if we fail we want to count it.
             const err = errorToString(e);
-            ctx.warn(err);
-            updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
-            updateFeedsTab(feed, SHEET_HEADERS.status, `ERROR: ${err}`);
+            setFeedStatus(feed, ctx, `ERROR: RSS feed (uncaught): ${err}`);
             continue;
         }
         if (result.status === STATUS.SKIP) {
             continue;
         }
-        if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
-            try {
-                sendDiscordMessage(result.message.embeds, feed, ctx);
-            }
-            catch (e) {
-                ctx.error(`Received error when sending data to discord: ${e}`);
-            }
+        if (result.status === STATUS.ERROR) {
+            setFeedStatus(feed, ctx, `ERROR: RSS feed: ${result.status_text}`, result.guid);
+            continue;
         }
-        updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
-        if (result.guid) {
-            updateFeedsTab(feed, SHEET_HEADERS.guid, result.guid);
+        if (((_b = (_a = result.embeds) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0) === 0) {
+            setFeedStatus(feed, ctx, `${result.status}: ${result.status_text}`, result.guid);
+            continue;
         }
-        updateFeedsTab(feed, SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
-        ctx.info(`Updated row ${sheet.getName()}:${feed.index + 1} ${STATUS[result.status]}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
+        requests.push(...normalizeMessages(ctx, feed, result.embeds));
         feed.settings.feedCount -= 1;
-        if (feed.settings.feedCount === 0) {
-            const limit = feed.settings.feed_limit.value;
-            ctx.info(`[${sheet.getName()}]: Hit limit of ${limit} feeds`);
+        if (feed.settings.feedCount <= 0) {
+            break;
         }
+    }
+    requests.sort((a, b) => a.epoch - b.epoch);
+    const feedSet = new Set(feeds.filter(f => f.counters.unprocessed));
+    // perform requests with ratelimiter
+    for (const request of requests) {
+        const webhook = request.feed.settings.webhook.get();
+        const onSuccess = () => {
+            request.feed.counters.unprocessed -= 1;
+            request.feed.counters.successful += 1;
+        };
+        const onError = (msg) => {
+            const ws = request.feed.settings.worksheet;
+            request.feed.counters.unprocessed -= 1;
+            request.feed.counters.error += 1;
+            ctx.error(`[${ws.getName()}:${request.feed.index + 1}] ${msg}.`);
+        };
+        ctx.rateLimiter.enqueue(ctx, webhook, request.payload, onSuccess, onError);
+    }
+    // check each RSS Feed status until done, periodically retrying requests
+    while (feedSet.size > 0 && ctx.rateLimiter.getTime() - (ctx.now) < CONFIG.RUNTIME) {
+        for (const feed of Array.from(feedSet)) {
+            if (feed.counters.unprocessed === 0) {
+                const sheet = feed.settings.worksheet;
+                const msg = `OK: ${renderFeedCounters(feed.counters)}`;
+                setFeedStatus(feed, ctx, msg, (_c = feed.result) === null || _c === void 0 ? void 0 : _c.guid);
+                ctx.info(`[${sheet.getName()}:${feed.index + 1}] ${msg}.`);
+                feedSet.delete(feed);
+            }
+        }
+        ctx.rateLimiter.processQueue(ctx);
+    }
+    for (const feed of feedSet) {
+        const msg = `ERROR: Did not finish items: ${renderFeedCounters(feed.counters)}`;
+        setFeedStatus(feed, ctx, msg, (_d = feed.result) === null || _d === void 0 ? void 0 : _d.guid);
     }
 }
 /** Ran when opened. Permissions are in an indeterminate state here. */
@@ -145,7 +168,6 @@ export function getSidebarData() {
 }
 /** Finds the timer trigger. */
 function getTimer() {
-    console.log(ScriptApp.getProjectTriggers().map(t => [t.getUniqueId(), t.getHandlerFunction()]));
     let timer = undefined;
     for (const trigger of ScriptApp.getProjectTriggers()) {
         if (trigger.getHandlerFunction() === 'DiscouRSSTimer') {

@@ -9,5 +9,6 @@ export declare function setupFeedsTab(worksheet: Worksheet): void;
  * Given an array of logs, inserts the logs into the `logs` tab.
  */
 export declare function writeLogs(sheet: Spreadsheet, logs: LOG_RECORD[], logger?: (log: string) => void): void;
-export declare function readFeedsTab(ctx: Context): Feed[];
+export declare function readFeedsTabs(ctx: Context): Feed[];
 export declare function updateFeedsTab(feed: Feed, column: SHEET_HEADER_TYPES, value: CELL_VALUE): void;
+export declare function setFeedStatus(feed: Feed, ctx: Context, status: string, guid?: string): void;

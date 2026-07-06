@@ -59,7 +59,7 @@ function getById(id) {
 }
 document.addEventListener("DOMContentLoaded", async () => {
     function log(...args) {
-        console.log(DEFAULT_APP_NAME, ...args);
+        console.info(DEFAULT_APP_NAME, ...args);
     }
     const settings = getById('settings');
     const sheetNameLabel = getById('sheetName');
@@ -257,4 +257,3 @@ document.addEventListener("DOMContentLoaded", async () => {
         failureHandler(e);
     }
 });
-console.log(`${DEFAULT_APP_NAME} online`);

@@ -66,21 +66,22 @@ const TOP_LEVEL_COMMENT = `/**
 async function getHeadVersion() {
   const buf = execSync('npx clasp versions').toString();
   const matches = buf.matchAll(/^\d+/mg)
-  console.log(Array.from(matches).pop()?.[0]);
+  console.info(Array.from(matches).pop()?.[0]);
 }
 
 async function writeVersion() {
-  const content = `export const version: string = '${
-    new Date().getTime().toLocaleString('en-US').replace(/,/g, '-')
-  }';\n`;
-  await fs.writeFile('src/version.ts', content);
-  await fs.writeFile('dist/version.js', content.replace(': string', ''));
+  const version = Date.now().toLocaleString('en-US').replace(/,/g, '-');
+  const ts = `export const version: string = '${version}';\n`;
+  const js = ts.replace(': string', '');
+  await fs.writeFile('src/version.ts', ts);
+  await fs.writeFile('dist/version.js', js);
+  console.info(`Wrote version: ${version}`);
 }
 
 async function printVersion() {
   const content = await fs.readFile('package.json', 'utf-8');
   const json = JSON.parse(content);
-  console.log(`${json.version} (${version})`);
+  console.info(`${json.version} (${version})`);
 }
 
 async function buildWeb() {
@@ -115,10 +116,10 @@ async function buildWeb() {
       const markdown = await fs.readFile(filePath, {encoding: 'utf-8'});
       const html = template.replace('__CONTENT__', await marked(markdown));
       await fs.writeFile(outputPath.replace(/\.md$/, '.html'), html);
-      console.log(`Built ${filename}`);
+      console.info(`Built ${filename}`);
     } else {
       fs.copyFile(filePath, outputPath);
-      console.log(`Copied ${filename}`);
+      console.info(`Copied ${filename}`);
     }
   }
 }
@@ -157,7 +158,7 @@ async function rollupJs(filename: string): Promise<string[]> {
 }
 
 async function build() {
-  await fs.mkdir('dest/clasp', {recursive: true});
+  await fs.mkdir('dist/clasp', {recursive: true});
   await writeVersion();
   await buildWeb();
   await buildSidebar();
@@ -171,7 +172,7 @@ async function build() {
     await fs.copyFile(filename, path.join(claspDir, fn));
   }
 
-  console.log(`Rolled up ${entryFile} into ${bundleFile}`);
+  console.info(`Rolled up ${entryFile} into ${bundleFile}`);
 }
 
 async function run() {

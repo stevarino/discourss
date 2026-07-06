@@ -10,6 +10,13 @@ export function truthy(test, other) {
     }
     return other;
 }
+export function first(...tests) {
+    for (const test of tests) {
+        if (test)
+            return test;
+    }
+    return undefined;
+}
 /**
  * Regex to extract webhook ID.
  * domain = discord | discordapp
@@ -24,7 +31,20 @@ export const CONFIG = {
     LOG_TO_STDERR: false,
     LOG_DEBUG: false,
     LIMIT_SAFETY_MARGIN: 0.9,
+    RUNTIME: 27,
 };
+export function renderFeedCounters(counters) {
+    const output = [];
+    for (const [key, value] of Object.entries(counters)) {
+        if (value) {
+            output.push(`${value} ${key}`);
+        }
+    }
+    if (output.length === 0) {
+        return 'no';
+    }
+    return output.join('; ') + ' items';
+}
 export var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";

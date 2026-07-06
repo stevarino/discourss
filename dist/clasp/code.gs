@@ -26,18 +26,19 @@
  */
 
 
-const version = '1-783-155-098-145';
+const version = '1-783-373-917-817';
 
 /**
  * common.js - common interfaces, types, and constants.
  */
 /** If test is truthy, return test, otherwise return other (or undefined) */
 const DEFAULT_APP_NAME = 'DiscouRSS';
-function truthy(test, other) {
-    if (test) {
-        return test;
+function first(...tests) {
+    for (const test of tests) {
+        if (test)
+            return test;
     }
-    return other;
+    return undefined;
 }
 /**
  * Regex to extract webhook ID.
@@ -53,7 +54,20 @@ const CONFIG = {
     LOG_TO_STDERR: false,
     LOG_DEBUG: false,
     LIMIT_SAFETY_MARGIN: 0.9,
+    RUNTIME: 27,
 };
+function renderFeedCounters(counters) {
+    const output = [];
+    for (const [key, value] of Object.entries(counters)) {
+        if (value) {
+            output.push(`${value} ${key}`);
+        }
+    }
+    if (output.length === 0) {
+        return 'no';
+    }
+    return output.join('; ') + ' items';
+}
 var STATUS;
 (function (STATUS) {
     STATUS[STATUS["OK"] = 0] = "OK";
@@ -122,6 +136,105 @@ class Fetcher {
     }
 }
 
+class Ratelimiter {
+    constructor(start) {
+        // FIFO queue
+        this.queue = [];
+        // map of URLs to resetsAt epoch times.
+        this.urlResets = {};
+        this.start = start !== null && start !== void 0 ? start : this.getTime();
+    }
+    getTime() {
+        return Date.now() / 1000;
+    }
+    sleep(ms) {
+        Utilities.sleep(ms);
+    }
+    /**
+     * Attempt to perform request, returns true if the request should be retried.
+     */
+    request(ctx, item) {
+        if (this.urlResets[item.url]) {
+            return true;
+        }
+        let response;
+        try {
+            response = ctx.fetch(item.url, {
+                method: 'post',
+                payload: item.payload,
+                contentType: "application/json"
+            });
+        }
+        catch (e) {
+            const id = getWebhookId(item.url);
+            item.onError(`Unable to make request to "${id}": ${e}`);
+            return false;
+        }
+        const statusCode = response.getResponseCode().toString();
+        const headers = response.getHeaders();
+        if (headers['x-ratelimit-remaining'] === '0') {
+            this.addUrl(item.url, headers);
+        }
+        if (statusCode.startsWith('2')) {
+            item.onSuccess();
+            return false;
+        }
+        if (statusCode === '429') {
+            this.addUrl(item.url, headers);
+            return true;
+        }
+        item.onError(`Discord returned HTTP Status Code ${response.getResponseCode()}`);
+        return false;
+    }
+    /** Tries an item, enqueuing it on failure and calling onSuccess on success */
+    tryRequest(ctx, item) {
+        if (this.request(ctx, item)) {
+            this.queue.push(item);
+        }
+    }
+    addUrl(url, headers) {
+        const reset = headers['x-ratelimit-reset'];
+        let time = 0;
+        if (reset) {
+            try {
+                time = parseInt(reset);
+            }
+            catch (e) {
+                console.warn(`Discord returned an invalid time: "${reset}"`);
+            }
+        }
+        if (!time) {
+            time = Math.ceil(this.getTime()) + 2;
+        }
+        this.urlResets[url] = time;
+    }
+    enqueue(ctx, url, payload, onSuccess, onError) {
+        this.tryRequest(ctx, {
+            url,
+            payload,
+            onSuccess: onSuccess !== null && onSuccess !== void 0 ? onSuccess : (() => { }),
+            onError: onError !== null && onError !== void 0 ? onError : (() => { })
+        });
+    }
+    processQueue(ctx) {
+        const now = this.getTime();
+        for (const [url, time] of Array.from(Object.entries(this.urlResets))) {
+            if (time < now) {
+                delete this.urlResets[url];
+            }
+        }
+        const items = [...this.queue];
+        this.queue.length = 0;
+        for (const item of items) {
+            this.tryRequest(ctx, item);
+        }
+        if (this.queue.length) {
+            this.sleep(100);
+        }
+        return this.queue.length > 0;
+    }
+}
+
 /**
  * context.js - Context and Logging infrastructure.
  */
@@ -148,7 +261,7 @@ function errorToString(e) {
     return `${e}`;
 }
 function errorToLogRecord(e, level) {
-    return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
+    return [Date.now(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
 }
 function log(logs, message, level) {
     if (level === LOG_LEVEL.DEBUG && !CONFIG.LOG_DEBUG) {
@@ -306,6 +419,7 @@ class Context {
     constructor(spreadsheet, logs) {
         this.sheetSettings = {};
         this.logs = [];
+        this.rateLimiter = new Ratelimiter();
         // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
         this.limits = {
             CONTENT_LENGTH: 2000,
@@ -315,8 +429,8 @@ class Context {
         };
         this.defaults = [];
         this.fetcher = new Fetcher();
-        this.now = new Date().getTime();
-        this.purgedAt = new Date().getTime();
+        this.now = Date.now() / 1000;
+        this.purgedAt = Date.now() / 1000;
         this.spreadsheet = spreadsheet;
         if (logs !== undefined) {
             this.logs = logs;
@@ -377,7 +491,7 @@ class Context {
     }
     log(level, message) {
         log(this.logs, message, level);
-        if (new Date().getTime() - this.purgedAt > PURGE_INTERVAL) {
+        if (Date.now() / 1000 - this.purgedAt > PURGE_INTERVAL) {
             if (this.logger)
                 this.logger(this.logs);
             this.logs.length = 0;
@@ -437,7 +551,7 @@ function setupFeedsTab(worksheet) {
         worksheet
             .getRange(1, lastCol + 1, 2, newData[0].length)
             .setValues(newData)
-            .setBackground('#4285f4')
+            .setBackground('#FF6600')
             .setTextStyle(newTextStyle()
             .setFontSize(16)
             .setBold(true)
@@ -454,7 +568,7 @@ function setupFeedsTab(worksheet) {
             const feedIndex = newData[0].indexOf(label) + 1;
             if (feedIndex) {
                 const width = worksheet.getColumnWidth(feedIndex + lastCol);
-                worksheet.setColumnWidth(feedIndex + lastCol, width * mult);
+                worksheet.setColumnWidth(feedIndex + lastCol, width * mult + 5);
             }
         }
     }
@@ -489,7 +603,7 @@ function writeLogs(sheet, logs, logger) {
         const oldRows = oldRange.getValues();
         rowCount = oldRows.length + 1;
         oldRange.clear();
-        let cutoffTime = new Date().getTime() - (7 * 24 * 3600 * 1000);
+        let cutoffTime = Date.now() - (7 * 24 * 3600);
         for (let i = 1; i < oldRows.length; i++) {
             const time = oldRows[i][0];
             if (typeof time === 'number' && cutoffTime < time) {
@@ -510,7 +624,7 @@ function writeLogs(sheet, logs, logger) {
 function getFeedColumn(feedHeaders, header) {
     return feedHeaders.indexOf(header);
 }
-function readFeedsTab(ctx) {
+function readFeedsTabs(ctx) {
     const feeds = [];
     const webhooks = new Set();
     for (const settings of Object.values(ctx.sheetSettings)) {
@@ -534,7 +648,6 @@ function readFeedsTab(ctx) {
                 }
                 continue;
             }
-            // console.log(values[i].map(String).join('\t'));
             const feed = { index: i, settings };
             // iterate across the columns, using the header to map the value to the Feed object
             for (const [j, header] of settings.feedHeaders.entries()) {
@@ -556,7 +669,12 @@ function readFeedsTab(ctx) {
                 }
                 continue;
             }
-            feeds.push(feed);
+            feeds.push({
+                ...feed,
+                feed: feed.feed,
+                time: feed.time,
+                counters: { successful: 0, error: 0, unprocessed: 0, invalid: 0 }
+            });
         }
     }
     const webhookIds = Array.from(webhooks).map(s => { var _a; return (_a = getWebhookId(s)) !== null && _a !== void 0 ? _a : '?'; });
@@ -565,11 +683,30 @@ function readFeedsTab(ctx) {
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
 }
-function updateFeedsTab(feed, column, value) {
-    var _a, _b;
-    const col = getFeedColumn(feed.settings.feedHeaders, column.label);
-    (_b = (_a = feed.settings.worksheet) === null || _a === void 0 ? void 0 : _a.getRange(feed.index + 1, col + 1, 1, 1)) === null || _b === void 0 ? void 0 : _b.setValues([[value]]);
-    return;
+function setFeedStatus(feed, ctx, status, guid) {
+    const sheet = feed.settings.worksheet;
+    const timeCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.time.label);
+    const statusCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.status.label);
+    const guidCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.guid.label);
+    const maxCol = Math.max(timeCol, statusCol, guidCol);
+    const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
+    if (!range) {
+        throw new Error(`could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
+    }
+    const msg = `[${sheet.getName()}:${feed.index + 1}] ${status}`;
+    if (status.startsWith('ERROR')) {
+        ctx.error(msg);
+    }
+    else {
+        ctx.info(msg);
+    }
+    const data = range.getValues();
+    data[0][timeCol] = Math.floor(ctx.now);
+    data[0][statusCol] = status;
+    if (guid !== undefined) {
+        data[0][guidCol] = guid;
+    }
+    range.setValues(data);
 }
 
 /** Types of elements found in htmlparser2's DOM */
@@ -811,276 +948,16 @@ function elementToMarkdown(node, path, children) {
     ];
 }
 
-class Ratelimiter {
-    constructor() {
-        // FIFO queue
-        this.queue = [];
-        // map of URLs to resetsAt epoch times.
-        this.urlResets = {};
-        this.getTime = () => new Date().getTime() / 1000;
-        this.sleep = (ms) => Utilities.sleep(ms);
-    }
-    /**
-     * Attempt to perform request, returns true if the request should be retried.
-     */
-    request(ctx, item) {
-        if (this.urlResets[item.url]) {
-            return true;
-        }
-        let response;
-        try {
-            response = ctx.fetch(item.url, {
-                method: 'post',
-                payload: item.payload,
-                contentType: "application/json"
-            });
-        }
-        catch (e) {
-            const id = getWebhookId(item.url);
-            console.warn(`Unable to make request to "${id}": ${e}`);
-            return false;
-        }
-        const statusCode = response.getResponseCode().toString();
-        const headers = response.getHeaders();
-        if (headers['x-ratelimit-remaining'] === '0') {
-            this.addUrl(item.url, headers);
-        }
-        if (statusCode.startsWith('2')) {
-            return false;
-        }
-        if (statusCode === '429') {
-            this.addUrl(item.url, headers);
-            return true;
-        }
-        ctx.warn(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
-        return false;
-    }
-    addUrl(url, headers) {
-        const reset = headers['x-ratelimit-reset'];
-        let time = 0;
-        if (reset) {
-            try {
-                time = parseInt(reset);
-            }
-            catch (e) {
-                console.warn(`Discord returned an invalid time: "${reset}"`);
-            }
-        }
-        if (!time) {
-            time = Math.ceil(this.getTime()) + 2;
-        }
-        this.urlResets[url] = time;
-    }
-    enqueue(ctx, url, payload) {
-        const item = { url, payload };
-        if (this.request(ctx, item)) {
-            this.queue.push(item);
-        }
-    }
-    processQueue(ctx) {
-        const now = this.getTime();
-        for (const [url, time] of Array.from(Object.entries(this.urlResets))) {
-            if (time < now) {
-                delete this.urlResets[url];
-            }
-        }
-        const items = [...this.queue];
-        this.queue.length = 0;
-        for (const item of items) {
-            if (!this.request(ctx, item)) {
-                this.queue.push(item);
-            }
-        }
-        if (this.queue.length) {
-            this.sleep(100);
-        }
-    }
-}
-
-/**
- * feeds.js - Convert an RSS item to a Discord Embed.
- */
-const SAFETY_MARGIN = 0.9;
-const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
-class Domain {
-    constructor(regex, logo, appname) {
-        this.regex = regex;
-        this.appname = appname;
-        this.logo = URL_ROOT + logo;
-    }
-}
-const KNOWN_DOMAINS = [
-    new Domain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
-    new Domain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
-];
-const RATE_LIMITER = new Ratelimiter();
-/**
- * Finds the index of the homogenous domain in embeds, or undefined if not
- * found or not homogenous.
- */
-function findDomain(embeds) {
-    var _a;
-    const set = new Set(embeds.map((e) => {
-        var _a;
-        for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
-            if (KNOWN_DOMAINS[i].regex.test((_a = e.url) !== null && _a !== void 0 ? _a : '')) {
-                return i;
-            }
-        }
-        return -1;
-    }));
-    if (set.size > 1) {
-        return -1;
-    }
-    return (_a = set.values().next().value) !== null && _a !== void 0 ? _a : -1;
-}
-function buildEmbed(_, settings, xml) {
-    var _a, _b;
-    const desc = xml.getChild('description');
-    if (!desc) {
-        throw new Error(`Missing description`);
-    }
-    const html = Cheerio.load(desc.getValue());
-    const embed = {
-        title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
-        url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
-        description: nodeToMarkdown(html),
-        fields: [],
-    };
-    const image = html('img').attr('src');
-    if (image) {
-        if (settings.image_format.value == 'image') {
-            embed.image = { url: image };
-        }
-        else if (settings.image_format.value == 'thumbnail') {
-            embed.thumbnail = { url: image };
-        }
-    }
-    // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
-    return embed;
-}
-/**
- * Send a message through discord using the webhook.
- */
-function sendDiscordMessage(embeds, feed, ctx) {
-    var _a, _b;
-    const settings = feed.settings;
-    if (!settings.webhook.value) {
-        return;
-    }
-    const message = {
-        embeds,
-        username: settings.appname.value,
-        content: String((_a = feed.discord) !== null && _a !== void 0 ? _a : ''),
-        avatar_url: truthy(settings.avatar_url.value),
-    };
-    // evaluate message contents
-    if (/^[0-9]+$/.test(message.content)) {
-        message.allowed_mentions = { users: [message.content] };
-        message.content = `<@${message.content}>`;
-    }
-    const signature = settings.signature.value;
-    if (signature && signature.includes('%s')) {
-        message.content = signature.replace('%s', message.content);
-    }
-    else if (signature) {
-        message.content = signature;
-    }
-    // if we're not bundling, copy message for each embed.
-    const messages = settings.bundle.value ? [message] :
-        message.embeds.map(e => { return { ...message, embeds: [e] }; });
-    for (const msg of messages) {
-        const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
-        msg.avatar_url = truthy(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
-        msg.username = (_b = truthy(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname)) !== null && _b !== void 0 ? _b : DEFAULT_APP_NAME;
-        // ctx.debug(`payload: ${JSON.stringify(msg)}`)
-        applyLimits(ctx, [msg]).map(payload => {
-            RATE_LIMITER.enqueue(ctx, settings.webhook.value, payload);
-        });
-    }
-}
-/**
- * Discord limits us to 10 embedded objects, 6000 characters total.
- *
- * https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
- */
-function getSafeLimits(ctx) {
-    return Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
-}
-function applyLimits(ctx, messages) {
-    var _a;
-    const limits = getSafeLimits(ctx);
-    for (let message of messages) {
-        if (((_a = message.content) !== null && _a !== void 0 ? _a : '').length > limits.CONTENT_LENGTH) {
-            message.content = message.content.slice(0, limits.CONTENT_LENGTH - 3) + '...';
-        }
-    }
-    return messages
-        .map(e => splitMessageByEmbeds(e, limits)).flat()
-        .map(e => splitMessageByPayloadSize(ctx, e, limits)).flat();
-}
-function splitMessageByEmbeds(message, limits) {
-    const messages = [message];
-    while (message.embeds.length > limits.EMBED_COUNT) {
-        const embeds = message.embeds;
-        message.embeds = embeds.slice(0, limits.EMBED_COUNT);
-        message = { ...message, embeds: embeds.slice(limits.EMBED_COUNT) };
-        messages.push(message);
-    }
-    return messages;
-}
-function splitMessageByPayloadSize(ctx, message, limits) {
-    const payload = JSON.stringify(message);
-    if (payload.length <= limits.PAYLOAD_LENGTH) {
-        return [payload];
-    }
-    // since we just care about string lengths, we're going to work in that rather
-    // than converting back and fourth.
-    const emptyPayload = JSON.stringify({ ...message, embeds: [] });
-    const target = '"embeds":[';
-    const index = emptyPayload.indexOf(target);
-    if (index === -1) {
-        // something really really broke.
-        throw new Error(`'Unable to find target in payload: ${emptyPayload}`);
-    }
-    const payloadPre = emptyPayload.slice(0, index + target.length);
-    const payloadPost = emptyPayload.slice(index + target.length);
-    const budget = limits.PAYLOAD_LENGTH - emptyPayload.length;
-    const embeds = message.embeds.map(e => JSON.stringify(e));
-    const stagedEmbeds = [];
-    const payloads = [];
-    let total = 0;
-    while (embeds.length > 0) {
-        const embed = embeds.pop();
-        if (embed.length > budget) {
-            ctx.warn(`Embed skipped due to length (${embed.length} > ${budget})`);
-            continue;
-        }
-        const extra = embed.length + 1;
-        if (total + extra - 1 > budget) {
-            payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
-            total = 0;
-            stagedEmbeds.length = 0;
-        }
-        stagedEmbeds.push(embed);
-        total += embed.length + extra;
-    }
-    if (stagedEmbeds.length) {
-        payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
-    }
-    return payloads;
-}
-
 /**
  * rss.js - functions related to processing RSS feeds.
  */
 /**
- * Process Feed
+ * Request an RSS feed and process it into a resulting set of embeds.
  */
 function processFeed(feed, ctx) {
     // skip feed that has recently been scanned
     const diff = ctx.now - feed.time;
-    if (diff < feed.settings.feed_frequency.value * 1000) {
+    if (diff < feed.settings.feed_frequency.value) {
         ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
         return { status: STATUS.SKIP, status_text: '' };
     }
@@ -1098,10 +975,7 @@ function processFeed(feed, ctx) {
 }
 function parseRssXml(content, feed, ctx) {
     var _a;
-    const msg = {
-        username: feed.discord,
-        embeds: [],
-    };
+    const embeds = [];
     const doc = XmlService.parse(content.trim());
     const root = doc.getRootElement();
     if (!root) {
@@ -1135,7 +1009,7 @@ function parseRssXml(content, feed, ctx) {
             break;
         }
         try {
-            msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+            embeds.push(buildEmbed(ctx, feed.settings, item));
         }
         catch (e) {
             console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
@@ -1146,24 +1020,209 @@ function parseRssXml(content, feed, ctx) {
     // entries we have already seen.
     if (!foundLast && String(feed.guid) !== '0') {
         status = 'new feed';
-        msg.embeds.length = 0;
+        embeds.length = 0;
     }
     else {
-        status = `found ${msg.embeds.length}`;
+        status = `found ${embeds.length}`;
     }
-    ctx.debug(`Processed ${msg.embeds.length} items`);
-    return {
+    // oldest first
+    embeds.reverse();
+    ctx.debug(`Processed ${embeds.length} items`);
+    const result = {
         status: STATUS.OK,
         status_text: status,
         guid: firstGuid,
-        message: msg,
+        embeds: embeds,
     };
+    feed.result = result;
+    return result;
+}
+function buildEmbed(_, settings, xml) {
+    var _a, _b, _c;
+    const desc = xml.getChild('description');
+    if (!desc) {
+        throw new Error(`Missing description`);
+    }
+    const html = Cheerio.load(desc.getValue());
+    const embed = {
+        title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
+        url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
+        description: nodeToMarkdown(html),
+        fields: [],
+    };
+    const pubDate = (_c = xml.getChild('pubDate')) === null || _c === void 0 ? void 0 : _c.getValue();
+    if (pubDate) {
+        try {
+            const epoch = Math.floor(new Date(pubDate).getTime() / 1000);
+            embed._ts = epoch;
+            embed.footer = `Published <t:${epoch}:R>`;
+        }
+        catch (e) {
+            console.warn(`Failed to parse pubDate: "${pubDate}"`);
+        }
+    }
+    const image = html('img').attr('src');
+    if (image) {
+        if (settings.image_format.value == 'image') {
+            embed.image = { url: image };
+        }
+        else if (settings.image_format.value == 'thumbnail') {
+            embed.thumbnail = { url: image };
+        }
+    }
+    // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
+    return embed;
+}
+
+/**
+ * feeds.js - Convert an RSS item to a Discord Embed.
+ */
+const SAFETY_MARGIN = 0.9;
+const URL_ROOT = 'https://discourss.stevarino.com/feeds/';
+class Domain {
+    constructor(regex, logo, appname) {
+        this.regex = regex;
+        this.appname = appname;
+        this.logo = URL_ROOT + logo;
+    }
+}
+const KNOWN_DOMAINS = [
+    new Domain(/:\/\/[^/]*goodreads.com/, 'goodreads.png', 'Goodreads RSS'),
+    new Domain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
+];
+function findDomainFromURL(url) {
+    for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
+        if (KNOWN_DOMAINS[i].regex.test(url)) {
+            return i;
+        }
+    }
+    return -1;
+}
+/**
+ * https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
+ */
+function getSafeLimits(ctx) {
+    return Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * SAFETY_MARGIN)]));
+}
+/** Normalizes messages and splits them up by feed limits. */
+function normalizeMessages(ctx, feed, embeds) {
+    var _a, _b;
+    const feedPayloads = [];
+    const limits = getSafeLimits(ctx);
+    const message = { embeds };
+    const settings = feed.settings;
+    let user = String((_a = feed.discord) !== null && _a !== void 0 ? _a : '');
+    // is feed.discord a Discord User ID?
+    if (/^[0-9]+$/.test(user)) {
+        message.allowed_mentions = { users: [user] };
+        user = `<@${user}>`;
+    }
+    if (settings.signature.value) {
+        user = settings.signature.value.replace('%s', user);
+    }
+    if ((user).length > limits.CONTENT_LENGTH) {
+        user = user.slice(0, limits.CONTENT_LENGTH - 3) + '...';
+    }
+    message.content = user;
+    const domain = KNOWN_DOMAINS[findDomainFromURL(feed.feed)];
+    message.avatar_url = first(settings.avatar_url.value, domain === null || domain === void 0 ? void 0 : domain.logo);
+    message.username = first(settings.appname.value, domain === null || domain === void 0 ? void 0 : domain.appname, DEFAULT_APP_NAME);
+    const initialLength = feedPayloads.length;
+    if (settings.bundle.value) {
+        // bundling, so fit as many embedded messages into a request as possible.
+        for (const splitMsg of splitMessageByEmbeds(message, limits)) {
+            for (const feedPayload of splitMessageByPayloadSize(ctx, feed, splitMsg, limits)) {
+                feedPayloads.push(feedPayload);
+            }
+        }
+    }
+    else {
+        // not bundling, split the messages up, one embed per message.
+        for (const embed of message.embeds) {
+            const payload = stringify({ ...message, embeds: [embed] });
+            feedPayloads.push({ feed, payload, epoch: (_b = embed._ts) !== null && _b !== void 0 ? _b : 0 });
+        }
+    }
+    feed.counters.unprocessed = feedPayloads.length - initialLength;
+    return feedPayloads;
+}
+function splitMessageByEmbeds(message, limits) {
+    const messages = [message];
+    while (message.embeds.length > limits.EMBED_COUNT) {
+        const embeds = message.embeds;
+        message.embeds = embeds.slice(0, limits.EMBED_COUNT);
+        message = { ...message, embeds: embeds.slice(limits.EMBED_COUNT) };
+        messages.push(message);
+    }
+    return messages;
+}
+function splitMessageByPayloadSize(ctx, feed, message, limits) {
+    var _a, _b;
+    const payload = stringify(message);
+    if (payload.length <= limits.PAYLOAD_LENGTH) {
+        return [{ feed, epoch: (_b = (_a = message.embeds[0]) === null || _a === void 0 ? void 0 : _a._ts) !== null && _b !== void 0 ? _b : 0, payload }];
+    }
+    /** output collection */
+    const payloads = [];
+    // since we just care about string lengths, we're going to work in that rather
+    // than converting back and fourth.
+    const emptyPayload = stringify({ ...message, embeds: [] });
+    const target = '"embeds":[';
+    const index = emptyPayload.indexOf(target);
+    if (index === -1) {
+        // something really really broke.
+        throw new Error(`'Unable to find target in payload: ${emptyPayload}`);
+    }
+    const payloadPre = emptyPayload.slice(0, index + target.length);
+    const payloadPost = emptyPayload.slice(index + target.length);
+    /** How many characters we have to work with */
+    const budget = limits.PAYLOAD_LENGTH - emptyPayload.length;
+    const embeds = [...message.embeds];
+    const stagedPayloads = [];
+    /** Earliest epoch in a bundle */
+    let epoch = undefined;
+    while (embeds.length > 0) {
+        const embed = embeds.pop();
+        const payload = stringify(embed);
+        if (payload.length > budget) {
+            feed.counters.invalid += 1;
+            ctx.warn(`Embed skipped due to length (${payload.length} > ${budget})`);
+            continue;
+        }
+        const extra = payload.length + 1;
+        const total = stagedPayloads.length === 0 ? 0 : (stagedPayloads.map(s => s.length).reduce((a, b) => a + b)) + stagedPayloads.length;
+        if (total + extra > budget) {
+            payloads.push({
+                feed,
+                epoch: epoch !== null && epoch !== void 0 ? epoch : 0,
+                payload: `${payloadPre}${stagedPayloads.join(',')}${payloadPost}`
+            });
+            stagedPayloads.length = 0;
+            epoch = undefined;
+        }
+        if (embed._ts) {
+            epoch = Math.min(embed._ts, epoch !== null && epoch !== void 0 ? epoch : embed._ts);
+        }
+        stagedPayloads.push(payload);
+    }
+    if (stagedPayloads.length) {
+        payloads.push({
+            feed,
+            epoch: epoch !== null && epoch !== void 0 ? epoch : 0,
+            payload: `${payloadPre}${stagedPayloads.join(',')}${payloadPost}`
+        });
+    }
+    return payloads;
+}
+/** Calls JSON.stringify, filtering out hidden fields. */
+function stringify(obj) {
+    return JSON.stringify(obj, (key, val) => key.startsWith('_') ? undefined : val);
 }
 
 /**
  * index.js - main entry point for code
  */
-CONFIG.LOG_TO_STDERR = true;
+CONFIG.LOG_TO_STDERR = false;
 CONFIG.LOG_DEBUG = false;
 /** A common execution wrapper. Handles context and logging. */
 function wrapper(method, ctx, func) {
@@ -1194,14 +1253,11 @@ function wrapper(method, ctx, func) {
 }
 /** Scan the Feeds table, read RSS feeds, and write to Discord. */
 function execute(ctx) {
-    var _a, _b;
-    const feeds = readFeedsTab(ctx);
+    var _a, _b, _c, _d;
+    const feeds = readFeedsTabs(ctx);
     ctx.info(`Read ${feeds.length} rows`);
+    const requests = [];
     for (const feed of feeds) {
-        const sheet = feed.settings.worksheet;
-        if (feed.settings.feedCount <= 0) {
-            continue;
-        }
         let result;
         try {
             result = processFeed(feed, ctx);
@@ -1209,33 +1265,59 @@ function execute(ctx) {
         catch (e) {
             // even if we fail we want to count it.
             const err = errorToString(e);
-            ctx.warn(err);
-            updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
-            updateFeedsTab(feed, SHEET_HEADERS.status, `ERROR: ${err}`);
+            setFeedStatus(feed, ctx, `ERROR: RSS feed (uncaught): ${err}`);
             continue;
         }
         if (result.status === STATUS.SKIP) {
             continue;
         }
-        if ((_b = (_a = result === null || result === void 0 ? void 0 : result.message) === null || _a === void 0 ? void 0 : _a.embeds) === null || _b === void 0 ? void 0 : _b.length) {
-            try {
-                sendDiscordMessage(result.message.embeds, feed, ctx);
-            }
-            catch (e) {
-                ctx.error(`Received error when sending data to discord: ${e}`);
-            }
+        if (result.status === STATUS.ERROR) {
+            setFeedStatus(feed, ctx, `ERROR: RSS feed: ${result.status_text}`, result.guid);
+            continue;
         }
-        updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
-        if (result.guid) {
-            updateFeedsTab(feed, SHEET_HEADERS.guid, result.guid);
+        if (((_b = (_a = result.embeds) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0) === 0) {
+            setFeedStatus(feed, ctx, `${result.status}: ${result.status_text}`, result.guid);
+            continue;
         }
-        updateFeedsTab(feed, SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
-        ctx.info(`Updated row ${sheet.getName()}:${feed.index + 1} ${STATUS[result.status]}: ${result === null || result === void 0 ? void 0 : result.status_text}`);
+        requests.push(...normalizeMessages(ctx, feed, result.embeds));
         feed.settings.feedCount -= 1;
-        if (feed.settings.feedCount === 0) {
-            const limit = feed.settings.feed_limit.value;
-            ctx.info(`[${sheet.getName()}]: Hit limit of ${limit} feeds`);
+        if (feed.settings.feedCount <= 0) {
+            break;
         }
+    }
+    requests.sort((a, b) => a.epoch - b.epoch);
+    const feedSet = new Set(feeds.filter(f => f.counters.unprocessed));
+    // perform requests with ratelimiter
+    for (const request of requests) {
+        const webhook = request.feed.settings.webhook.get();
+        const onSuccess = () => {
+            request.feed.counters.unprocessed -= 1;
+            request.feed.counters.successful += 1;
+        };
+        const onError = (msg) => {
+            const ws = request.feed.settings.worksheet;
+            request.feed.counters.unprocessed -= 1;
+            request.feed.counters.error += 1;
+            ctx.error(`[${ws.getName()}:${request.feed.index + 1}] ${msg}.`);
+        };
+        ctx.rateLimiter.enqueue(ctx, webhook, request.payload, onSuccess, onError);
+    }
+    // check each RSS Feed status until done, periodically retrying requests
+    while (feedSet.size > 0 && ctx.rateLimiter.getTime() - (ctx.now) < CONFIG.RUNTIME) {
+        for (const feed of Array.from(feedSet)) {
+            if (feed.counters.unprocessed === 0) {
+                const sheet = feed.settings.worksheet;
+                const msg = `OK: ${renderFeedCounters(feed.counters)}`;
+                setFeedStatus(feed, ctx, msg, (_c = feed.result) === null || _c === void 0 ? void 0 : _c.guid);
+                ctx.info(`[${sheet.getName()}:${feed.index + 1}] ${msg}.`);
+                feedSet.delete(feed);
+            }
+        }
+        ctx.rateLimiter.processQueue(ctx);
+    }
+    for (const feed of feedSet) {
+        const msg = `ERROR: Did not finish items: ${renderFeedCounters(feed.counters)}`;
+        setFeedStatus(feed, ctx, msg, (_d = feed.result) === null || _d === void 0 ? void 0 : _d.guid);
     }
 }
 /** Ran when opened. Permissions are in an indeterminate state here. */
@@ -1301,7 +1383,6 @@ function getSidebarData() {
 }
 /** Finds the timer trigger. */
 function getTimer() {
-    console.log(ScriptApp.getProjectTriggers().map(t => [t.getUniqueId(), t.getHandlerFunction()]));
     let timer = undefined;
     for (const trigger of ScriptApp.getProjectTriggers()) {
         if (trigger.getHandlerFunction() === 'DiscouRSSTimer') {

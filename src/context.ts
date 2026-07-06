@@ -5,8 +5,10 @@
 import {
   CELL_VALUE, Spreadsheet, CONFIG, Fetcher, FetchRequest, FetchResponse,
   DEFAULT_APP_NAME, Metadata, Worksheet, SettingInterface, SettingsInterface,
-  SidebarSheetsData, getWebhookId
+  SidebarSheetsData, getWebhookId,
 } from './common.js';
+
+import { Ratelimiter } from './ratelimiter.js';
 
 /** Purge logs every 10s */
 const PURGE_INTERVAL = 5_000;
@@ -31,7 +33,7 @@ export function errorToString(e: unknown): string {
 }
 
 export function errorToLogRecord(e: unknown, level?: LOG_LEVEL): LOG_RECORD{
-  return [new Date().getTime(), level ?? LOG_LEVEL.ERROR, errorToString(e)];
+  return [Date.now(), level ?? LOG_LEVEL.ERROR, errorToString(e)];
 }
 
 export function log(logs: LOG_RECORD[], message: maybeError, level?: LOG_LEVEL): void {
@@ -111,7 +113,7 @@ class Setting<T extends CELL_VALUE> implements SettingInterface {
 }
 
 /** Settings specific to a single sheet. */
-class SheetSettings implements SettingsInterface {
+export class SheetSettings implements SettingsInterface {
   worksheet: Worksheet | undefined;
   feedHeaders: CELL_VALUE[] = [];
   isSet = false;
@@ -233,6 +235,7 @@ export class Context {
   logs: LOG_RECORD[] = [];
   fetcher: Fetcher;
   logger: ((logs: LOG_RECORD[]) => void) | undefined;
+  rateLimiter: Ratelimiter = new Ratelimiter();
 
   // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
   limits = {
@@ -250,8 +253,8 @@ export class Context {
 
   constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]) {
     this.fetcher = new Fetcher();
-    this.now = new Date().getTime();
-    this.purgedAt = new Date().getTime();
+    this.now = Date.now() / 1000;
+    this.purgedAt = Date.now() / 1000;
     this.spreadsheet = spreadsheet;
     if (logs !== undefined) {
       this.logs = logs;
@@ -319,7 +322,7 @@ export class Context {
 
   log(level: LOG_LEVEL, message: string): void {
     log(this.logs, message, level);
-    if (new Date().getTime() - this.purgedAt > PURGE_INTERVAL) {
+    if (Date.now() / 1000 - this.purgedAt > PURGE_INTERVAL) {
       if (this.logger) this.logger(this.logs);
       this.logs.length = 0;
     }
@@ -341,3 +344,5 @@ export class Context {
     log(this.logs, message, LOG_LEVEL.DEBUG);
   }
 }
+
+

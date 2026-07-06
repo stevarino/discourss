@@ -3,9 +3,7 @@
  */
 
 import { Context } from './context.js';
-import { Embed, Message, Feed, truthy, XmlElement, DEFAULT_APP_NAME, SettingsInterface } from './common.js';
-import { nodeToMarkdown } from './markdown.js';
-import { Ratelimiter } from './ratelimiter.js';
+import { Message, Feed, DEFAULT_APP_NAME, first, FeedRequest, Embed } from './common.js';
 
 const SAFETY_MARGIN = 0.9;
 
@@ -23,98 +21,16 @@ const KNOWN_DOMAINS = [
   new Domain(/:\/\/[^/]*letterboxd.com/, 'letterboxd.png', 'Letterboxd RSS'),
 ];
 
-const RATE_LIMITER = new Ratelimiter();
-
-/** 
- * Finds the index of the homogenous domain in embeds, or undefined if not
- * found or not homogenous.
- */
-function findDomain(embeds: Embed[]): number {
-  const set = new Set(embeds.map((e: Embed) => {
-    for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
-      if (KNOWN_DOMAINS[i].regex.test(e.url ?? '')) {
-        return i;
-      }
-    }
-    return -1;
-  }));
-  if (set.size > 1) {
-    return -1;
-  }
-  return set.values().next().value ?? -1;
-}
-
-export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElement): Embed {
-  const desc = xml.getChild('description');
-  if (!desc) {
-    throw new Error(`Missing description`);
-  }
-  const html = Cheerio.load(desc.getValue());
-  const embed: Embed = {
-    title: xml.getChild("title")?.getText(),
-    url: xml.getChild('link')?.getText(),
-    description: nodeToMarkdown(html),
-    fields: [],
-  }
-
-  const image = html('img').attr('src');
-  if (image) {
-    if (settings.image_format.value == 'image') {
-      embed.image = {url: image};
-    } else if (settings.image_format.value == 'thumbnail') {
-      embed.thumbnail = {url: image};
+function findDomainFromURL(url: string): number {
+  for (let i = 0; i < KNOWN_DOMAINS.length; i++) {
+    if (KNOWN_DOMAINS[i].regex.test(url)) {
+      return i;
     }
   }
-  // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
-  return embed;
-}
-
-/**
- * Send a message through discord using the webhook.
- */
-export function sendDiscordMessage(embeds: Embed[], feed: Feed, ctx: Context): void {
-  const settings = feed.settings;
-  if (!settings.webhook.value) {
-    return;
-  }
-  const message: Message = {
-    embeds,
-    username: settings.appname.value,
-    content: String(feed.discord ?? ''),
-    avatar_url: truthy(settings.avatar_url.value),
-  };
-
-  // evaluate message contents
-  if (/^[0-9]+$/.test(message.content!)) {
-    message.allowed_mentions = {users: [message.content!]};
-    message.content = `<@${message.content!}>`;
-  }
-  const signature = settings.signature.value;
-  if (signature && signature.includes('%s')) {
-    message.content = signature.replace('%s', message.content!);
-  } else if (signature) {
-    message.content = signature;
-  }
-
-  // if we're not bundling, copy message for each embed.
-  const messages: Message[] = settings.bundle.value ? [message] : 
-    message.embeds.map(e => {return {...message, embeds: [e]}});
-
-  for (const msg of messages) {
-    const domain = KNOWN_DOMAINS[findDomain(msg.embeds)];
-    msg.avatar_url = truthy(settings.avatar_url.value, domain?.logo);
-    msg.username = truthy(settings.appname.value, domain?.appname) ?? DEFAULT_APP_NAME;
-    // ctx.debug(`payload: ${JSON.stringify(msg)}`)
-
-    applyLimits(ctx, [msg]).map(payload => {
-      RATE_LIMITER.enqueue(ctx, settings.webhook.value, payload);
-    })
-  }
+  return -1;
 }
 
 /** 
- * Discord limits us to 10 embedded objects, 6000 characters total.
- * 
  * https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
  */
 function getSafeLimits(ctx: Context) {
@@ -123,16 +39,52 @@ function getSafeLimits(ctx: Context) {
   )) as typeof ctx.limits;
 }
 
-export function applyLimits(ctx: Context, messages: Message[]): string[] {
+/** Normalizes messages and splits them up by feed limits. */
+export function normalizeMessages(ctx: Context, feed: Feed, embeds: Embed[]): FeedRequest[] {
+  const feedPayloads: FeedRequest[] = [];
   const limits = getSafeLimits(ctx);
-  for (let message of messages) {
-    if ((message.content ?? '').length > limits.CONTENT_LENGTH) {
-      message.content = message.content!.slice(0, limits.CONTENT_LENGTH - 3) + '...';
+
+  const message: Message = { embeds }
+  const settings = feed.settings;
+
+  let user = String(feed.discord ?? '');
+
+  // is feed.discord a Discord User ID?
+  if (/^[0-9]+$/.test(user!)) {
+    message.allowed_mentions = {users: [user!]};
+    user = `<@${user}>`;
+  }
+
+  if (settings.signature.value) {
+    user = settings.signature.value.replace('%s', user);
+  }
+
+  if ((user).length > limits.CONTENT_LENGTH) {
+    user = user!.slice(0, limits.CONTENT_LENGTH - 3) + '...';
+  }
+  message.content = user;
+
+  const domain = KNOWN_DOMAINS[findDomainFromURL(feed.feed)];
+  message.avatar_url = first(settings.avatar_url.value, domain?.logo);
+  message.username = first(settings.appname.value, domain?.appname, DEFAULT_APP_NAME)!;
+
+  const initialLength = feedPayloads.length;
+  if (settings.bundle.value) {
+    // bundling, so fit as many embedded messages into a request as possible.
+    for (const splitMsg of splitMessageByEmbeds(message, limits)) {
+      for (const feedPayload of splitMessageByPayloadSize(ctx, feed, splitMsg, limits)) {
+        feedPayloads.push(feedPayload);
+      }
+    }
+  } else {
+    // not bundling, split the messages up, one embed per message.
+    for (const embed of message.embeds) {
+      const payload = stringify({...message, embeds: [embed]});
+      feedPayloads.push({feed, payload, epoch: embed._ts ?? 0});
     }
   }
-  return messages
-    .map(e => splitMessageByEmbeds(e, limits)).flat()
-    .map(e => splitMessageByPayloadSize(ctx, e, limits)).flat();
+  feed.counters.unprocessed = feedPayloads.length - initialLength;
+  return feedPayloads;
 }
 
 function splitMessageByEmbeds(message: Message, limits: ReturnType<typeof getSafeLimits>) {
@@ -146,14 +98,18 @@ function splitMessageByEmbeds(message: Message, limits: ReturnType<typeof getSaf
   return messages;
 }
 
-function splitMessageByPayloadSize(ctx: Context, message: Message, limits: ReturnType<typeof getSafeLimits>) {
-  const payload = JSON.stringify(message);
+function splitMessageByPayloadSize(
+  ctx: Context, feed: Feed, message: Message, limits: ReturnType<typeof getSafeLimits>): FeedRequest[] {
+  const payload = stringify(message);
   if (payload.length <= limits.PAYLOAD_LENGTH) {
-    return [payload];
+    return [{feed, epoch: message.embeds[0]?._ts ?? 0, payload}];
   }
+  /** output collection */
+  const payloads: FeedRequest[] = [];
+
   // since we just care about string lengths, we're going to work in that rather
   // than converting back and fourth.
-  const emptyPayload = JSON.stringify({...message, embeds: []});
+  const emptyPayload = stringify({...message, embeds: []});
   const target = '"embeds":[';
   const index = emptyPayload.indexOf(target);
   if (index === -1) {
@@ -162,28 +118,53 @@ function splitMessageByPayloadSize(ctx: Context, message: Message, limits: Retur
   }
   const payloadPre = emptyPayload.slice(0, index + target.length)
   const payloadPost = emptyPayload.slice(index + target.length)
+
+  /** How many characters we have to work with */
   const budget = limits.PAYLOAD_LENGTH - emptyPayload.length;
-  const embeds = message.embeds.map(e => JSON.stringify(e));
-  const stagedEmbeds: string[] = [];
-  const payloads: string[] = [];
-  let total = 0;
+
+  const embeds = [...message.embeds];
+  const stagedPayloads: string[] = [];
+  /** Earliest epoch in a bundle */
+  let epoch: number|undefined = undefined;
   while (embeds.length > 0) {
     const embed = embeds.pop()!;
-    if (embed.length > budget) {
-      ctx.warn(`Embed skipped due to length (${embed.length} > ${budget})`);
+    const payload = stringify(embed);
+    if (payload.length > budget) {
+      feed.counters.invalid += 1;
+      ctx.warn(`Embed skipped due to length (${payload.length} > ${budget})`);
       continue;
     }
-    const extra = embed.length + 1;
-    if (total + extra -1 > budget) {
-      payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
-      total = 0;
-      stagedEmbeds.length = 0;
+    const extra = payload.length + 1;
+    const total = stagedPayloads.length === 0 ? 0 : (
+      stagedPayloads.map(s => s.length).reduce((a, b) => a + b)
+    ) + stagedPayloads.length;
+    if (total + extra > budget) {
+      payloads.push({
+        feed,
+        epoch: epoch ?? 0, 
+        payload: `${payloadPre}${stagedPayloads.join(',')}${payloadPost}`
+      });
+      stagedPayloads.length = 0;
+      epoch = undefined;
     }
-    stagedEmbeds.push(embed)
-    total += embed.length + extra;
+    if (embed._ts) {
+      epoch = Math.min(embed._ts, epoch ?? embed._ts);
+    }
+    stagedPayloads.push(payload);
   }
-  if (stagedEmbeds.length) {
-    payloads.push(`${payloadPre}${stagedEmbeds.join(',')}${payloadPost}`);
+  if (stagedPayloads.length) {
+    payloads.push({
+      feed,
+      epoch: epoch ?? 0,
+      payload: `${payloadPre}${stagedPayloads.join(',')}${payloadPost}`
+    });
   }
   return payloads
+}
+
+/** Calls JSON.stringify, filtering out hidden fields. */
+function stringify(obj: {}) {
+  return JSON.stringify(
+    obj, (key, val) => key.startsWith('_') ? undefined : val
+  );
 }

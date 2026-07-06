@@ -1,9 +1,12 @@
 import { FetchRequest, FetchResponse, getWebhookId } from "./common.js";
-import { Context } from "./context.js";
+import { IContext } from "./common.js";
+
 
 interface RatelimiterItem {
   url: string,
   payload: string,
+  onSuccess: () => void,
+  onError: (msg: string) => void,
 }
 
 export class Ratelimiter {
@@ -11,15 +14,24 @@ export class Ratelimiter {
   queue: RatelimiterItem[] = [];
   // map of URLs to resetsAt epoch times.
   urlResets: Record<string, number> = {};
+  start: number;
 
-  getTime = (): number => new Date().getTime() / 1000;
+  constructor(start?: number) {
+    this.start = start ?? this.getTime();
+  }
 
-  sleep = (ms: number): void => Utilities.sleep(ms)
+  getTime(): number {
+    return Date.now() / 1000;
+  }
+
+  sleep(ms: number): void {
+    Utilities.sleep(ms)
+  }
 
   /**
    * Attempt to perform request, returns true if the request should be retried.
    */
-  private request(ctx: Context, item: RatelimiterItem) {
+  private request(ctx: IContext, item: RatelimiterItem) {
     if (this.urlResets[item.url]) {
       return true;
     }
@@ -32,7 +44,7 @@ export class Ratelimiter {
       } as FetchRequest);
     } catch (e) {
       const id = getWebhookId(item.url);
-      console.warn(`Unable to make request to "${id}": ${e}`);
+      item.onError(`Unable to make request to "${id}": ${e}`);
       return false;
     }
     
@@ -44,14 +56,22 @@ export class Ratelimiter {
     }
 
     if (statusCode.startsWith('2')) {
+      item.onSuccess();
       return false;
     }
     if (statusCode === '429') {
       this.addUrl(item.url, headers);
       return true;
     }
-    ctx.warn(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`)
+    item.onError(`Discord returned HTTP Status Code ${response.getResponseCode()}`);
     return false;
+  }
+
+  /** Tries an item, enqueuing it on failure and calling onSuccess on success */
+  private tryRequest(ctx: IContext, item: RatelimiterItem) {
+    if (this.request(ctx, item)) {
+      this.queue.push(item);
+    }
   }
 
   private addUrl(url: string, headers: Record<string, string>) {
@@ -70,14 +90,18 @@ export class Ratelimiter {
     this.urlResets[url] = time;
   }
 
-  enqueue(ctx: Context, url: string, payload: string): void {
-    const item: RatelimiterItem = {url, payload}
-    if (this.request(ctx, item)) {
-      this.queue.push(item);
-    }
+  enqueue(
+    ctx: IContext, url: string, payload: string, onSuccess?: () => void, onError?: (msg: string) => void
+  ): void {
+    this.tryRequest(ctx, {
+      url,
+      payload,
+      onSuccess: onSuccess ?? (() => {}),
+      onError: onError ?? (() => {})
+    });
   }
 
-  processQueue(ctx: Context): void {
+  processQueue(ctx: IContext): boolean {
     const now = this.getTime();
     for (const [url, time] of Array.from(Object.entries(this.urlResets))) {
       if (time < now) {
@@ -88,12 +112,27 @@ export class Ratelimiter {
     const items = [...this.queue];
     this.queue.length = 0;
     for (const item of items) {
-      if (!this.request(ctx, item)) {
-        this.queue.push(item);
-      }
+      this.tryRequest(ctx, item);
     }
     if (this.queue.length) {
       this.sleep(100);
     }
+    return this.queue.length > 0;
+  }
+}
+
+export class MockRatelimiter extends Ratelimiter {
+  ms = 0;
+
+  override getTime(): number {
+    return this.start + this.ms;
+  }
+
+  override sleep(ms: number): void {
+    this.ms += ms / 1000;
+  }
+
+  constructor(start: number){
+    super(start);
   }
 }

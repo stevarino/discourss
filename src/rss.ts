@@ -2,17 +2,17 @@
  * rss.js - functions related to processing RSS feeds.
  */
 
-import { Result, STATUS, Message, Feed, XmlDocument } from './common.js';
+import { Result, STATUS, Feed, XmlDocument, Embed, SettingsInterface, XmlElement } from './common.js';
 import { Context } from './context.js';
-import { buildEmbed } from './discord.js';
+import { nodeToMarkdown } from './markdown.js';
 
 /**
- * Process Feed
+ * Request an RSS feed and process it into a resulting set of embeds.
  */
 export function processFeed(feed: Feed, ctx: Context): Result {
   // skip feed that has recently been scanned
   const diff = ctx.now - feed.time;
-  if (diff < feed.settings.feed_frequency.value * 1000) {
+  if (diff < feed.settings.feed_frequency.value) {
     ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
     return { status: STATUS.SKIP, status_text: '' };
   }
@@ -32,10 +32,7 @@ export function processFeed(feed: Feed, ctx: Context): Result {
 
 
 function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
-  const msg: Message = {
-    username: feed.discord,
-    embeds: [],
-  }
+  const embeds: Embed[] = [];
 
   const doc: XmlDocument = XmlService.parse(content.trim());
   const root = doc.getRootElement();
@@ -71,7 +68,7 @@ function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
       break;
     }
     try {
-      msg.embeds.push(buildEmbed(ctx, feed.settings, item));
+      embeds.push(buildEmbed(ctx, feed.settings, item));
     } catch (e) {
       console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`)
     }
@@ -82,16 +79,56 @@ function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
   // entries we have already seen.
   if(!foundLast && String(feed.guid) !== '0') {
     status = 'new feed';
-    msg.embeds.length = 0;
+    embeds.length = 0;
   } else {
-    status = `found ${msg.embeds.length}`
+    status = `found ${embeds.length}`
   }
 
-  ctx.debug(`Processed ${msg.embeds.length} items`);
-  return { 
+  // oldest first
+  embeds.reverse();
+  ctx.debug(`Processed ${embeds.length} items`);
+  const result = { 
     status: STATUS.OK,
     status_text: status,
     guid: firstGuid,
-    message: msg,
+    embeds: embeds,
   };
+  feed.result = result;
+  return result;
+}
+
+export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElement): Embed {
+  const desc = xml.getChild('description');
+  if (!desc) {
+    throw new Error(`Missing description`);
+  }
+  const html = Cheerio.load(desc.getValue());
+  const embed: Embed = {
+    title: xml.getChild("title")?.getText(),
+    url: xml.getChild('link')?.getText(),
+    description: nodeToMarkdown(html),
+    fields: [],
+  }
+
+  const pubDate = xml.getChild('pubDate')?.getValue();
+  if (pubDate) {
+    try {
+      const epoch = Math.floor(new Date(pubDate).getTime() / 1000);
+      embed._ts = epoch;
+      embed.footer = `Published <t:${epoch}:R>`;
+    } catch (e) {
+      console.warn(`Failed to parse pubDate: "${pubDate}"`)
+    }
+  }
+
+  const image = html('img').attr('src');
+  if (image) {
+    if (settings.image_format.value == 'image') {
+      embed.image = {url: image};
+    } else if (settings.image_format.value == 'thumbnail') {
+      embed.thumbnail = {url: image};
+    }
+  }
+  // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
+  return embed;
 }

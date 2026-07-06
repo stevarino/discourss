@@ -1,12 +1,17 @@
 import { getWebhookId } from "./common.js";
 export class Ratelimiter {
-    constructor() {
+    constructor(start) {
         // FIFO queue
         this.queue = [];
         // map of URLs to resetsAt epoch times.
         this.urlResets = {};
-        this.getTime = () => new Date().getTime() / 1000;
-        this.sleep = (ms) => Utilities.sleep(ms);
+        this.start = start !== null && start !== void 0 ? start : this.getTime();
+    }
+    getTime() {
+        return Date.now() / 1000;
+    }
+    sleep(ms) {
+        Utilities.sleep(ms);
     }
     /**
      * Attempt to perform request, returns true if the request should be retried.
@@ -25,7 +30,7 @@ export class Ratelimiter {
         }
         catch (e) {
             const id = getWebhookId(item.url);
-            console.warn(`Unable to make request to "${id}": ${e}`);
+            item.onError(`Unable to make request to "${id}": ${e}`);
             return false;
         }
         const statusCode = response.getResponseCode().toString();
@@ -34,14 +39,21 @@ export class Ratelimiter {
             this.addUrl(item.url, headers);
         }
         if (statusCode.startsWith('2')) {
+            item.onSuccess();
             return false;
         }
         if (statusCode === '429') {
             this.addUrl(item.url, headers);
             return true;
         }
-        ctx.warn(`Discord returned HTTP Status Code ${response.getResponseCode()} - Aborting`);
+        item.onError(`Discord returned HTTP Status Code ${response.getResponseCode()}`);
         return false;
+    }
+    /** Tries an item, enqueuing it on failure and calling onSuccess on success */
+    tryRequest(ctx, item) {
+        if (this.request(ctx, item)) {
+            this.queue.push(item);
+        }
     }
     addUrl(url, headers) {
         const reset = headers['x-ratelimit-reset'];
@@ -59,11 +71,13 @@ export class Ratelimiter {
         }
         this.urlResets[url] = time;
     }
-    enqueue(ctx, url, payload) {
-        const item = { url, payload };
-        if (this.request(ctx, item)) {
-            this.queue.push(item);
-        }
+    enqueue(ctx, url, payload, onSuccess, onError) {
+        this.tryRequest(ctx, {
+            url,
+            payload,
+            onSuccess: onSuccess !== null && onSuccess !== void 0 ? onSuccess : (() => { }),
+            onError: onError !== null && onError !== void 0 ? onError : (() => { })
+        });
     }
     processQueue(ctx) {
         const now = this.getTime();
@@ -75,12 +89,23 @@ export class Ratelimiter {
         const items = [...this.queue];
         this.queue.length = 0;
         for (const item of items) {
-            if (!this.request(ctx, item)) {
-                this.queue.push(item);
-            }
+            this.tryRequest(ctx, item);
         }
         if (this.queue.length) {
             this.sleep(100);
         }
+        return this.queue.length > 0;
+    }
+}
+export class MockRatelimiter extends Ratelimiter {
+    getTime() {
+        return this.start + this.ms;
+    }
+    sleep(ms) {
+        this.ms += ms / 1000;
+    }
+    constructor(start) {
+        super(start);
+        this.ms = 0;
     }
 }

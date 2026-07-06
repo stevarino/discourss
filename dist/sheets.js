@@ -40,7 +40,7 @@ export function setupFeedsTab(worksheet) {
         worksheet
             .getRange(1, lastCol + 1, 2, newData[0].length)
             .setValues(newData)
-            .setBackground('#4285f4')
+            .setBackground('#FF6600')
             .setTextStyle(newTextStyle()
             .setFontSize(16)
             .setBold(true)
@@ -57,7 +57,7 @@ export function setupFeedsTab(worksheet) {
             const feedIndex = newData[0].indexOf(label) + 1;
             if (feedIndex) {
                 const width = worksheet.getColumnWidth(feedIndex + lastCol);
-                worksheet.setColumnWidth(feedIndex + lastCol, width * mult);
+                worksheet.setColumnWidth(feedIndex + lastCol, width * mult + 5);
             }
         }
     }
@@ -92,7 +92,7 @@ export function writeLogs(sheet, logs, logger) {
         const oldRows = oldRange.getValues();
         rowCount = oldRows.length + 1;
         oldRange.clear();
-        let cutoffTime = new Date().getTime() - (7 * 24 * 3600 * 1000);
+        let cutoffTime = Date.now() - (7 * 24 * 3600);
         for (let i = 1; i < oldRows.length; i++) {
             const time = oldRows[i][0];
             if (typeof time === 'number' && cutoffTime < time) {
@@ -113,7 +113,7 @@ export function writeLogs(sheet, logs, logger) {
 function getFeedColumn(feedHeaders, header) {
     return feedHeaders.indexOf(header);
 }
-export function readFeedsTab(ctx) {
+export function readFeedsTabs(ctx) {
     const feeds = [];
     const webhooks = new Set();
     for (const settings of Object.values(ctx.sheetSettings)) {
@@ -137,7 +137,6 @@ export function readFeedsTab(ctx) {
                 }
                 continue;
             }
-            // console.log(values[i].map(String).join('\t'));
             const feed = { index: i, settings };
             // iterate across the columns, using the header to map the value to the Feed object
             for (const [j, header] of settings.feedHeaders.entries()) {
@@ -159,7 +158,12 @@ export function readFeedsTab(ctx) {
                 }
                 continue;
             }
-            feeds.push(feed);
+            feeds.push({
+                ...feed,
+                feed: feed.feed,
+                time: feed.time,
+                counters: { successful: 0, error: 0, unprocessed: 0, invalid: 0 }
+            });
         }
     }
     const webhookIds = Array.from(webhooks).map(s => { var _a; return (_a = getWebhookId(s)) !== null && _a !== void 0 ? _a : '?'; });
@@ -172,5 +176,29 @@ export function updateFeedsTab(feed, column, value) {
     var _a, _b;
     const col = getFeedColumn(feed.settings.feedHeaders, column.label);
     (_b = (_a = feed.settings.worksheet) === null || _a === void 0 ? void 0 : _a.getRange(feed.index + 1, col + 1, 1, 1)) === null || _b === void 0 ? void 0 : _b.setValues([[value]]);
-    return;
+}
+export function setFeedStatus(feed, ctx, status, guid) {
+    const sheet = feed.settings.worksheet;
+    const timeCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.time.label);
+    const statusCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.status.label);
+    const guidCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.guid.label);
+    const maxCol = Math.max(timeCol, statusCol, guidCol);
+    const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
+    if (!range) {
+        throw new Error(`could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
+    }
+    const msg = `[${sheet.getName()}:${feed.index + 1}] ${status}`;
+    if (status.startsWith('ERROR')) {
+        ctx.error(msg);
+    }
+    else {
+        ctx.info(msg);
+    }
+    const data = range.getValues();
+    data[0][timeCol] = Math.floor(ctx.now);
+    data[0][statusCol] = status;
+    if (guid !== undefined) {
+        data[0][guidCol] = guid;
+    }
+    range.setValues(data);
 }

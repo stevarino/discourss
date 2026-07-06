@@ -4,25 +4,25 @@
 
 import * as CheerioLib from 'cheerio';
 import {
-  Result, SHEET_HEADERS, STATUS, DEFAULT_APP_NAME, SidebarData,
+  Result, STATUS, DEFAULT_APP_NAME, SidebarData,
   SidebarSaveRequest, SidebarSaveResponse, ButtonSet, Button, CONFIG,
-  SidebarPollResponse,
+  SidebarPollResponse, Feed, FeedRequest, renderFeedCounters
 } from './common.js';
 import {
   LOG_LEVEL, LOG_RECORD, errorToString, log, Context
 } from './context.js';
 import { 
-  readFeedsTab, updateFeedsTab, writeLogs, setupFeedsTab,
+  readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus,
 } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
-import { sendDiscordMessage } from './discord.js';
+import { normalizeMessages } from './discord.js';
 
 declare global {
   const Cheerio: typeof CheerioLib;
 }
 
-CONFIG.LOG_TO_STDERR = true;
+CONFIG.LOG_TO_STDERR = false;
 CONFIG.LOG_DEBUG = false;
 
 /** A common execution wrapper. Handles context and logging. */
@@ -58,48 +58,77 @@ function wrapper<T>(
 
 /** Scan the Feeds table, read RSS feeds, and write to Discord. */
 function execute(ctx: Context) {
-  const feeds = readFeedsTab(ctx);
+  const feeds = readFeedsTabs(ctx);
   ctx.info(`Read ${feeds.length} rows`);
 
+  const requests: FeedRequest[] = [];
   for (const feed of feeds) {
-    const sheet = feed.settings.worksheet!;
-    if (feed.settings.feedCount <= 0) {
-      continue;
-    }
     let result: Result;
     try {
       result = processFeed(feed, ctx);
     } catch (e) {
       // even if we fail we want to count it.
       const err = errorToString(e);
-      ctx.warn(err);
-      updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
-      updateFeedsTab(feed, SHEET_HEADERS.status, `ERROR: ${err}`);
+      setFeedStatus(feed, ctx, `ERROR: RSS feed (uncaught): ${err}`);
       continue
     }
     if (result.status === STATUS.SKIP) {
       continue;
     }
+    if (result.status === STATUS.ERROR) {
+      setFeedStatus(feed, ctx, `ERROR: RSS feed: ${result.status_text}`, result.guid);
+      continue;
+    }
+    if ((result.embeds?.length ?? 0) ===  0) {
+      setFeedStatus(feed, ctx, `${result.status}: ${result.status_text}`, result.guid);
+      continue;
+    }
 
-    if (result?.message?.embeds?.length) {
-      try {
-        sendDiscordMessage(result.message.embeds, feed, ctx)
-      } catch (e) {
-        ctx.error(`Received error when sending data to discord: ${e}`);
-      }
-    }
-    updateFeedsTab(feed, SHEET_HEADERS.time, ctx.now);
-    if (result.guid) {
-      updateFeedsTab(feed, SHEET_HEADERS.guid, result.guid);
-    }
-    updateFeedsTab(feed, SHEET_HEADERS.status, `${STATUS[result.status]}: ${result.status_text}`);
-    ctx.info(`Updated row ${sheet.getName()}:${feed.index+1} ${STATUS[result.status]}: ${result?.status_text}`);
+    requests.push(...normalizeMessages(ctx, feed, result.embeds!));
 
     feed.settings.feedCount -= 1;
-    if (feed.settings.feedCount === 0) {
-      const limit = feed.settings.feed_limit.value;
-      ctx.info(`[${sheet.getName()}]: Hit limit of ${limit} feeds`);
+    if (feed.settings.feedCount <= 0) {
+      break;
     }
+  }
+
+  requests.sort((a, b) => a.epoch - b.epoch);
+
+  const feedSet = new Set<Feed>(feeds.filter(f => f.counters.unprocessed));
+  
+  // perform requests with ratelimiter
+  for(const request of requests) {
+    const webhook = request.feed.settings.webhook.get();
+    const onSuccess = () => {
+      request.feed.counters.unprocessed -= 1;
+      request.feed.counters.successful += 1;
+    };
+    const onError = (msg: string) => {
+      const ws = request.feed.settings.worksheet!
+      request.feed.counters.unprocessed -= 1;
+      request.feed.counters.error += 1;
+      ctx.error(`[${ws.getName()}:${request.feed.index+1}] ${msg}.`);
+    }
+    ctx.rateLimiter.enqueue(ctx, webhook, request.payload, onSuccess, onError);
+  }
+  
+  // check each RSS Feed status until done, periodically retrying requests
+  while (feedSet.size > 0 && ctx.rateLimiter.getTime() - (ctx.now) < CONFIG.RUNTIME) {
+    for (const feed of Array.from(feedSet)) {
+      if (feed.counters.unprocessed === 0) {
+        const sheet = feed.settings.worksheet!;
+        const msg = `OK: ${renderFeedCounters(feed.counters)}`;
+        setFeedStatus(feed, ctx, msg, feed.result?.guid);
+        ctx.info(`[${sheet.getName()}:${feed.index+1}] ${msg}.`);
+        feedSet.delete(feed);
+      }
+    }
+    ctx.rateLimiter.processQueue(ctx);
+  }
+
+  for (const feed of feedSet) {
+    const msg = `ERROR: Did not finish items: ${renderFeedCounters(feed.counters)}`;
+    setFeedStatus(feed, ctx, msg, feed.result?.guid);
   }
 }
 
@@ -171,10 +200,7 @@ export function getSidebarData(): SidebarData {
 }
 
 /** Finds the timer trigger. */
-function getTimer() {
-  console.log(
-    ScriptApp.getProjectTriggers().map(t => [t.getUniqueId(), t.getHandlerFunction()]))
-  
+function getTimer() {  
   let timer: GoogleAppsScript.Script.Trigger|undefined = undefined;
   for  (const trigger of ScriptApp.getProjectTriggers()) {
     if (trigger.getHandlerFunction() === 'DiscouRSSTimer') {

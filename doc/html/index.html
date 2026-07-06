@@ -122,6 +122,15 @@
 <h1>DiscouRSS - RSS to Discord Bridge</h1>
 <p>DiscouRSS is a Google Sheets Addon that reads RSS Feeds (such as news, Letterboxd reviews, GoodReads activity) and pipe those events to a Discord channel.</p>
 <p>The configuration and execution is handled entirely within Google Sheets, allowing for easy management with no cost (beyond a Google account).</p>
+<h2>Features</h2>
+<ul>
+<li>Implemented via Discord Webhooks, so no read access to Discord messaages.</li>
+<li>Runs hourly (more frequent if manually triggered).</li>
+<li>Uses Google Access Control for managing activity.</li>
+<li>Adaptive rate limiting for Discord webhooks, up to about 60 Discord messages per channel per run.</li>
+<li>Converts RSS HTML to Discord Markdown.</li>
+<li>Plenty of customization options.</li>
+</ul>
 <h2>Setup</h2>
 <p>NOTE: This is currently in private beta.</p>
 <ul>
@@ -171,7 +180,7 @@
 <td><em>(Informative)</em> Last run status for the given feed.</td>
 </tr>
 </tbody></table>
-<h3>Settings Tab</h3>
+<h3>Sidebar Settings</h3>
 <table>
 <thead>
 <tr>
@@ -190,8 +199,8 @@
 <tr>
 <td><strong>appname</strong></td>
 <td>String</td>
-<td><code>DiscouRSS</code></td>
-<td>The Discord Bot name.</td>
+<td>``</td>
+<td>The Discord Bot name. If not set, will either be set to a feed-specific default or <code>DiscouRSS</code> if nothing else.</td>
 </tr>
 <tr>
 <td><strong>avatar_url</strong></td>
@@ -203,7 +212,7 @@
 <td><strong>signature</strong></td>
 <td>String</td>
 <td><code>%s Posted:</code></td>
-<td>The signature used for the title. &quot;%s&quot; is replaced with the discord user.</td>
+<td>The signature used for the title. &quot;%s&quot; is replaced with the value in the Discord column.</td>
 </tr>
 <tr>
 <td><strong>feed_pattern</strong></td>
@@ -215,7 +224,7 @@
 <td><strong>feed_limit</strong></td>
 <td>Integer</td>
 <td><code>5</code></td>
-<td>How many feeds to process per run.</td>
+<td>How many RSS feeds to process per run.</td>
 </tr>
 <tr>
 <td><strong>feed_frequency</strong></td>

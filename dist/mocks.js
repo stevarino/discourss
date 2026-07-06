@@ -2,22 +2,29 @@
 import * as cheerio from 'cheerio';
 import { Fetcher } from './common.js';
 import { Context } from './context.js';
+import { MockRatelimiter } from './ratelimiter.js';
+export const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/123/test';
 /** Returns a context with a mock spreadsheet and one mock worksheet */
 export function buildMocks(sheetName = 'Feeds') {
     const ss = new MockSpreadsheet();
     const ws = ss.insertSheet(sheetName);
     const ctx = new Context(ss);
+    ctx.now = 499280400;
     ctx.fetcher = new MockFetcher();
-    ctx.sheetSettings[ws.getSheetId()].isSet = true;
-    return [ctx, ss, ws];
+    ctx.rateLimiter = new MockRatelimiter(ctx.now);
+    const settings = ctx.sheetSettings[ws.getSheetId()];
+    settings.isSet = true;
+    settings.webhook.set(DISCORD_WEBHOOK);
+    return [ctx, ss, ws, settings];
 }
 export class MockResponse {
-    constructor(contentText, responseCode = 200) {
+    constructor(contentText, responseCode = 200, headers = {}) {
         this.contentText = contentText;
         this.responseCode = responseCode;
+        this.headers = headers;
     }
     getHeaders() {
-        return {};
+        return this.headers;
     }
     getResponseCode() {
         return this.responseCode;
@@ -58,10 +65,10 @@ export class MockFetcher extends Fetcher {
         this.requests[url].push({ req, res });
         return res;
     }
-    addMock(urlPattern, contentText, responseCode = 200) {
+    addMock(urlPattern, contentText, responseCode = 200, headers = {}) {
         this.rules.push({
             urlPattern,
-            response: new MockResponse(contentText, responseCode)
+            response: new MockResponse(contentText, responseCode, headers)
         });
     }
     setDefaultResponse(contentText, responseCode = 404) {

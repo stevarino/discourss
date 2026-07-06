@@ -1,7 +1,8 @@
 /**
  * context.js - Context and Logging infrastructure.
  */
-import { CONFIG, Fetcher, DEFAULT_APP_NAME, getWebhookId } from './common.js';
+import { CONFIG, Fetcher, DEFAULT_APP_NAME, getWebhookId, } from './common.js';
+import { Ratelimiter } from './ratelimiter.js';
 /** Purge logs every 10s */
 const PURGE_INTERVAL = 5000;
 export var LOG_LEVEL;
@@ -26,7 +27,7 @@ export function errorToString(e) {
     return `${e}`;
 }
 export function errorToLogRecord(e, level) {
-    return [new Date().getTime(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
+    return [Date.now(), level !== null && level !== void 0 ? level : LOG_LEVEL.ERROR, errorToString(e)];
 }
 export function log(logs, message, level) {
     if (level === LOG_LEVEL.DEBUG && !CONFIG.LOG_DEBUG) {
@@ -92,7 +93,7 @@ class Setting {
     }
 }
 /** Settings specific to a single sheet. */
-class SheetSettings {
+export class SheetSettings {
     constructor(worksheet) {
         this.feedHeaders = [];
         this.isSet = false;
@@ -184,6 +185,7 @@ export class Context {
     constructor(spreadsheet, logs) {
         this.sheetSettings = {};
         this.logs = [];
+        this.rateLimiter = new Ratelimiter();
         // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
         this.limits = {
             CONTENT_LENGTH: 2000,
@@ -193,8 +195,8 @@ export class Context {
         };
         this.defaults = [];
         this.fetcher = new Fetcher();
-        this.now = new Date().getTime();
-        this.purgedAt = new Date().getTime();
+        this.now = Date.now() / 1000;
+        this.purgedAt = Date.now() / 1000;
         this.spreadsheet = spreadsheet;
         if (logs !== undefined) {
             this.logs = logs;
@@ -255,7 +257,7 @@ export class Context {
     }
     log(level, message) {
         log(this.logs, message, level);
-        if (new Date().getTime() - this.purgedAt > PURGE_INTERVAL) {
+        if (Date.now() / 1000 - this.purgedAt > PURGE_INTERVAL) {
             if (this.logger)
                 this.logger(this.logs);
             this.logs.length = 0;

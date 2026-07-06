@@ -49,7 +49,7 @@ export function setupFeedsTab(worksheet: Worksheet): void {
     worksheet
       .getRange(1, lastCol + 1, 2, newData[0].length)
       .setValues(newData)
-      .setBackground('#4285f4')
+      .setBackground('#FF6600')
       .setTextStyle(newTextStyle()
         .setFontSize(16)
         .setBold(true)
@@ -69,7 +69,7 @@ export function setupFeedsTab(worksheet: Worksheet): void {
       const feedIndex = newData[0].indexOf(label) + 1;
       if (feedIndex) {
         const width = worksheet.getColumnWidth(feedIndex + lastCol);
-        worksheet.setColumnWidth(feedIndex + lastCol, width * mult);
+        worksheet.setColumnWidth(feedIndex + lastCol, width * mult + 5);
       }
     }
   }
@@ -108,7 +108,7 @@ export function writeLogs(
     const oldRows = oldRange.getValues();
     rowCount = oldRows.length + 1;
     oldRange.clear();
-    let cutoffTime = new Date().getTime() - (7 * 24 * 3600 * 1000);
+    let cutoffTime = Date.now() - (7 * 24 * 3600);
     for (let i = 1; i < oldRows.length; i++) {
       const time = oldRows[i][0]
       if (typeof time === 'number' && cutoffTime < time) {
@@ -132,7 +132,7 @@ function getFeedColumn(feedHeaders: CELL_VALUE[], header: string): number {
   return feedHeaders.indexOf(header)
 }
 
-export function readFeedsTab(ctx: Context): Feed[] {
+export function readFeedsTabs(ctx: Context): Feed[] {
   const feeds: Feed[] = [];
   const webhooks = new Set<string>();
   for (const settings of Object.values(ctx.sheetSettings)) {
@@ -155,8 +155,7 @@ export function readFeedsTab(ctx: Context): Feed[] {
         }
         continue;
       }
-      // console.log(values[i].map(String).join('\t'));
-
+      
       const feed: PartialFeed = {index: i, settings};
       // iterate across the columns, using the header to map the value to the Feed object
       for (const [j, header] of settings.feedHeaders.entries()) {
@@ -178,7 +177,12 @@ export function readFeedsTab(ctx: Context): Feed[] {
         }
         continue;
       }
-      feeds.push(feed as Feed);
+      feeds.push({
+        ...feed,
+        feed: feed.feed!,
+        time: feed.time!,
+        counters: {successful: 0, error: 0, unprocessed: 0, invalid: 0}
+      });
     }
   }
   const webhookIds = Array.from(webhooks).map(s => getWebhookId(s) ?? '?');
@@ -192,5 +196,29 @@ export function readFeedsTab(ctx: Context): Feed[] {
 export function updateFeedsTab(feed: Feed, column: SHEET_HEADER_TYPES, value: CELL_VALUE): void {
   const col = getFeedColumn(feed.settings.feedHeaders, column.label);
   feed.settings.worksheet?.getRange(feed.index + 1, col + 1, 1, 1)?.setValues([[value]]);
-  return;
+}
+
+export function setFeedStatus(feed: Feed, ctx: Context, status: string, guid?: string): void {
+  const sheet = feed.settings.worksheet!;
+  const timeCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.time.label);
+  const statusCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.status.label);
+  const guidCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.guid.label);
+  const maxCol = Math.max(timeCol, statusCol, guidCol);
+  const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
+  if (!range) {
+    throw new Error(`could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
+  }
+  const msg = `[${sheet.getName()}:${feed.index+1}] ${status}`;
+  if (status.startsWith('ERROR')) {
+    ctx.error(msg);
+  } else {
+    ctx.info(msg);
+  }
+  const data = range.getValues();
+  data[0][timeCol] = Math.floor(ctx.now);
+  data[0][statusCol] = status;
+  if (guid !== undefined) {
+    data[0][guidCol] = guid;
+  }
+  range.setValues(data);
 }

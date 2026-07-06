@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { setupFeedsTab, writeLogs, readFeedsTab, updateFeedsTab, LOGS_TAB } from './sheets.js';
+import { setupFeedsTab, writeLogs, readFeedsTabs, updateFeedsTab, LOGS_TAB } from './sheets.js';
 import { SHEET_HEADERS } from './common.js';
 import { LOG_LEVEL } from './context.js';
 import { buildMocks } from './mocks.js';
@@ -51,7 +51,7 @@ describe('sheets.ts unit tests', () => {
         tab.getRange(1, 1, 1, 6).setValues([['Index', 'Feed', 'Discord', 'Time', 'GUID', 'Status']]);
         tab.getRange(2, 1, 1, 6).setValues([[1, 'https://example.com/feed1', 'discord-webhook-1', 1234567, 'guid-123', 'ok']]);
         tab.getRange(3, 1, 1, 6).setValues([[2, 'invalid-url', 'discord-webhook-2', 1234568, 'guid-456', 'ok']]);
-        const feeds = readFeedsTab(ctx);
+        const feeds = readFeedsTabs(ctx);
         // Verify only the valid feed (matching feedPatternRe /https:\/\//) is parsed
         assert.strictEqual(feeds.length, 1);
         assert.strictEqual(feeds[0].feed, 'https://example.com/feed1');
@@ -63,7 +63,7 @@ describe('sheets.ts unit tests', () => {
         const headers = ['Index', 'Feed', 'Discord', 'Time', 'GUID', 'Status'];
         tab.getRange(1, 1, 1, 6).setValues([headers]);
         tab.getRange(2, 1, 1, 6).setValues([[1, 'https://example.com/feed1', 'discord-webhook-1', 1234567, 'guid-123', 'ok']]);
-        const feeds = readFeedsTab(ctx);
+        const feeds = readFeedsTabs(ctx);
         assert.strictEqual(feeds.length, 1);
         updateFeedsTab(feeds[0], SHEET_HEADERS.guid, 'new-guid-value');
         // Verify that the cell (row 2, column index 4 for 'GUID') was updated

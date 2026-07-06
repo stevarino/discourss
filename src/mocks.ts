@@ -6,29 +6,38 @@ import {
   Spreadsheet, CELL_VALUE, Worksheet, XmlDocument, XmlElement,
   FetchRequest, FetchResponse, Fetcher, MetadataContainer
 } from './common.js';
-import { Context } from './context.js';
+import { Context, SheetSettings } from './context.js';
+import { MockRatelimiter } from './ratelimiter.js';
+
+export const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/123/test';
 
 /** Returns a context with a mock spreadsheet and one mock worksheet */
-export function buildMocks(sheetName='Feeds'): [Context, Spreadsheet, Worksheet] {
+export function buildMocks(sheetName='Feeds'): [Context, Spreadsheet, Worksheet, SheetSettings] {
   const ss = new MockSpreadsheet();
   const ws = ss.insertSheet(sheetName)
   const ctx = new Context(ss);
+  ctx.now = 499280400;
   ctx.fetcher = new MockFetcher();
-  ctx.sheetSettings[ws.getSheetId()].isSet = true;
-  return [ctx, ss, ws];
+  ctx.rateLimiter = new MockRatelimiter(ctx.now);
+  const settings = ctx.sheetSettings[ws.getSheetId()];
+  settings.isSet = true;
+  settings.webhook.set(DISCORD_WEBHOOK)
+  return [ctx, ss, ws, settings];
 }
 
 export class MockResponse implements FetchResponse {
   private responseCode: number;
   private contentText: string;
+  private headers: Record<string, string>;
 
-  constructor(contentText: string, responseCode = 200) {
+  constructor(contentText: string, responseCode = 200, headers: Record<string, string> = {}) {
     this.contentText = contentText;
     this.responseCode = responseCode;
+    this.headers = headers;
   }
 
   getHeaders(): {} {
-    return {}
+    return this.headers;
   }
 
   getResponseCode(): number {
@@ -70,10 +79,10 @@ export class MockFetcher extends Fetcher {
     return res;
   }
 
-  addMock(urlPattern: string | RegExp, contentText: string, responseCode = 200): void {
+  addMock(urlPattern: string | RegExp, contentText: string, responseCode = 200, headers: Record<string, string> = {}): void {
     this.rules.push({
       urlPattern,
-      response: new MockResponse(contentText, responseCode)
+      response: new MockResponse(contentText, responseCode, headers)
     });
   }
 

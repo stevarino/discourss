@@ -4,6 +4,7 @@
 /** If test is truthy, return test, otherwise return other (or undefined) */
 export declare const DEFAULT_APP_NAME = "DiscouRSS";
 export declare function truthy<T>(test: T, other?: T): T | undefined;
+export declare function first<T>(...tests: T[]): T | undefined;
 export declare function getWebhookId(url: string): string | undefined;
 export type Button = "CLOSE" | "OK" | "CANCEL" | "YES" | "NO";
 export type ButtonSet = "OK" | "OK_CANCEL" | "YES_NO" | "YES_NO_CANCEL";
@@ -11,6 +12,7 @@ export declare const CONFIG: {
     LOG_TO_STDERR: boolean;
     LOG_DEBUG: boolean;
     LIMIT_SAFETY_MARGIN: number;
+    RUNTIME: number;
 };
 export interface PartialFeed {
     index: number;
@@ -21,10 +23,20 @@ export interface PartialFeed {
     guid?: string;
     status?: string;
 }
+/** Represents a row in a sheet pointing to an RSS feed. */
 export type Feed = PartialFeed & {
     time: number;
     feed: string;
+    result?: Result;
+    counters: FeedCounters;
 };
+interface FeedCounters {
+    successful: number;
+    error: number;
+    unprocessed: number;
+    invalid: number;
+}
+export declare function renderFeedCounters(counters: FeedCounters): string;
 export type FeedLookup = Record<keyof PartialFeed, string | number | undefined | SettingsInterface>;
 export interface Embed {
     title?: string;
@@ -40,6 +52,8 @@ export interface Embed {
         name: string;
         value: string;
     }[];
+    footer?: string;
+    _ts?: number;
 }
 export interface Message {
     content?: string;
@@ -57,11 +71,12 @@ export declare enum STATUS {
     ERROR = 3,
     NONE = 4
 }
+/** Set of Discord Webhook Messages from a sheet. */
 export interface Result {
     status: STATUS;
     status_text: string;
     guid?: string;
-    message?: Message;
+    embeds?: Embed[];
     sheets_update?: [SHEET_HEADERS_FIELDS, string | number][];
 }
 export interface SHEET_HEADER_TYPES {
@@ -207,5 +222,24 @@ export interface SettingsInterface {
     image_format: SettingInterface<"image" | "thumbnail" | "none">;
     bundle: SettingInterface<boolean>;
     feedCount: number;
+}
+export interface FeedRequest {
+    epoch: number;
+    feed: Feed;
+    payload: string;
+}
+export interface IContext {
+    loadSettings(): void;
+    getSettings(): Record<string, SidebarSheetsData>;
+    getSheetData(sheetId: string): SidebarSheetsData;
+    getWorksheet(sheetId: string): Worksheet | undefined;
+    setSettings(sheetId: string, values: [string, CELL_VALUE][]): string[];
+    deleteSettings(sheetId: string): void;
+    reset(spreadsheet?: Spreadsheet): void;
+    fetch(url: string, params?: FetchRequest): FetchResponse;
+    error(message: string): void;
+    warn(message: string): void;
+    info(message: string): void;
+    debug(message: string): void;
 }
 export {};
