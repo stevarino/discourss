@@ -21,6 +21,12 @@ export function first<T>(...tests: T[]): T|undefined {
   return undefined;
 }
 
+/** Returns "[SheetName:RowNum]" for a given feed. */
+export function renderLogHeader(feed: Feed): string {
+  const ws = feed.settings.worksheet!
+  return `[${ws.getName()}:${feed.index+1}]`
+}
+
 /**
  * Regex to extract webhook ID. 
  * domain = discord | discordapp
@@ -84,6 +90,7 @@ export function renderFeedCounters(counters: FeedCounters): string {
 
 export type FeedLookup = Record<keyof PartialFeed, string|number|undefined|SettingsInterface>;
 
+// https://docs.discord.com/developers/resources/message#embed-object
 export interface Embed {
   title?: string,
   url?: string,
@@ -91,7 +98,8 @@ export interface Embed {
   thumbnail?: {url: string}|undefined,
   image?: {url: string}|undefined,
   fields: {name: string, value: string}[],
-  footer?: string,
+  footer?: {text: string},
+  timestamp?: string,
   _ts?: number,
 }
 

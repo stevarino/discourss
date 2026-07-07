@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-783-373-917-817';
+const version = '1-783-405-635-901';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -39,6 +39,11 @@ function first(...tests) {
             return test;
     }
     return undefined;
+}
+/** Returns "[SheetName:RowNum]" for a given feed. */
+function renderLogHeader(feed) {
+    const ws = feed.settings.worksheet;
+    return `[${ws.getName()}:${feed.index + 1}]`;
 }
 /**
  * Regex to extract webhook ID.
@@ -665,7 +670,7 @@ function readFeedsTabs(ctx) {
             if (!settings.feedPatternRe.test(feed.feed)) {
                 // entries with spaces are likely descriptions
                 if (!feed.feed.includes(' ')) {
-                    ctx.warn(`"${feed.feed}" failed to match ${settings.feedPatternRe.source}`);
+                    ctx.warn(`"${renderLogHeader(feed)}" failed to match ${settings.feedPatternRe.source}`);
                 }
                 continue;
             }
@@ -678,7 +683,7 @@ function readFeedsTabs(ctx) {
         }
     }
     const webhookIds = Array.from(webhooks).map(s => { var _a; return (_a = getWebhookId(s)) !== null && _a !== void 0 ? _a : '?'; });
-    ctx.info(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
+    console.log(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
@@ -691,9 +696,9 @@ function setFeedStatus(feed, ctx, status, guid) {
     const maxCol = Math.max(timeCol, statusCol, guidCol);
     const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
     if (!range) {
-        throw new Error(`could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
+        throw new Error(`${renderLogHeader(feed)} could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
     }
-    const msg = `[${sheet.getName()}:${feed.index + 1}] ${status}`;
+    const msg = `${renderLogHeader(feed)} ${status}`;
     if (status.startsWith('ERROR')) {
         ctx.error(msg);
     }
@@ -958,10 +963,10 @@ function processFeed(feed, ctx) {
     // skip feed that has recently been scanned
     const diff = ctx.now - feed.time;
     if (diff < feed.settings.feed_frequency.value) {
-        ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+        ctx.info(`${renderLogHeader(feed)} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
         return { status: STATUS.SKIP, status_text: '' };
     }
-    ctx.info(`${feed.feed} - fetching`);
+    ctx.info(`${renderLogHeader(feed)} - fetching`);
     const res = ctx.fetch(feed.feed);
     if (!String(res.getResponseCode()).startsWith('2')) {
         return {
@@ -1012,7 +1017,7 @@ function parseRssXml(content, feed, ctx) {
             embeds.push(buildEmbed(ctx, feed.settings, item));
         }
         catch (e) {
-            console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
+            ctx.warn(`${renderLogHeader(feed)} [${guid}] Could not process embed: "${e}"`);
         }
     }
     // TODO: better separate this.
@@ -1053,9 +1058,10 @@ function buildEmbed(_, settings, xml) {
     const pubDate = (_c = xml.getChild('pubDate')) === null || _c === void 0 ? void 0 : _c.getValue();
     if (pubDate) {
         try {
-            const epoch = Math.floor(new Date(pubDate).getTime() / 1000);
+            const date = new Date(pubDate);
+            const epoch = Math.floor(date.getTime() / 1000);
             embed._ts = epoch;
-            embed.footer = `Published <t:${epoch}:R>`;
+            embed.timestamp = date.toISOString();
         }
         catch (e) {
             console.warn(`Failed to parse pubDate: "${pubDate}"`);
@@ -1237,6 +1243,7 @@ function wrapper(method, ctx, func) {
         ctx.limits = Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)]));
         if (method) {
             ctx.info(`--- START ${method} (${version}) ---`);
+            console.log(`starting: ${method} ${spreadsheet.getId()} (${version})`);
         }
         return func(ctx);
     }
@@ -1255,7 +1262,7 @@ function wrapper(method, ctx, func) {
 function execute(ctx) {
     var _a, _b, _c, _d;
     const feeds = readFeedsTabs(ctx);
-    ctx.info(`Read ${feeds.length} rows`);
+    ctx.info(`Found ${feeds.length} RSS feeds`);
     const requests = [];
     for (const feed of feeds) {
         let result;
@@ -1295,10 +1302,9 @@ function execute(ctx) {
             request.feed.counters.successful += 1;
         };
         const onError = (msg) => {
-            const ws = request.feed.settings.worksheet;
             request.feed.counters.unprocessed -= 1;
             request.feed.counters.error += 1;
-            ctx.error(`[${ws.getName()}:${request.feed.index + 1}] ${msg}.`);
+            ctx.error(`${renderLogHeader(request.feed)} ${msg}.`);
         };
         ctx.rateLimiter.enqueue(ctx, webhook, request.payload, onSuccess, onError);
     }
@@ -1306,10 +1312,9 @@ function execute(ctx) {
     while (feedSet.size > 0 && ctx.rateLimiter.getTime() - (ctx.now) < CONFIG.RUNTIME) {
         for (const feed of Array.from(feedSet)) {
             if (feed.counters.unprocessed === 0) {
-                const sheet = feed.settings.worksheet;
                 const msg = `OK: ${renderFeedCounters(feed.counters)}`;
                 setFeedStatus(feed, ctx, msg, (_c = feed.result) === null || _c === void 0 ? void 0 : _c.guid);
-                ctx.info(`[${sheet.getName()}:${feed.index + 1}] ${msg}.`);
+                ctx.info(`${renderLogHeader(feed)} ${msg}.`);
                 feedSet.delete(feed);
             }
         }

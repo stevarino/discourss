@@ -4,7 +4,7 @@
 
 import * as CheerioLib from 'cheerio';
 import {
-  Result, STATUS, DEFAULT_APP_NAME, SidebarData,
+  renderLogHeader, Result, STATUS, DEFAULT_APP_NAME, SidebarData,
   SidebarSaveRequest, SidebarSaveResponse, ButtonSet, Button, CONFIG,
   SidebarPollResponse, Feed, FeedRequest, renderFeedCounters
 } from './common.js';
@@ -43,6 +43,7 @@ function wrapper<T>(
       ([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)])) as typeof ctx.limits;
     if (method) {
       ctx.info(`--- START ${method} (${version}) ---`);
+      console.log(`starting: ${method} ${spreadsheet.getId()} (${version})`);
     }
     return func(ctx);
   } catch (e) {
@@ -59,7 +60,7 @@ function wrapper<T>(
 /** Scan the Feeds table, read RSS feeds, and write to Discord. */
 function execute(ctx: Context) {
   const feeds = readFeedsTabs(ctx);
-  ctx.info(`Read ${feeds.length} rows`);
+  ctx.info(`Found ${feeds.length} RSS feeds`);
 
   const requests: FeedRequest[] = [];
   for (const feed of feeds) {
@@ -104,10 +105,9 @@ function execute(ctx: Context) {
       request.feed.counters.successful += 1;
     };
     const onError = (msg: string) => {
-      const ws = request.feed.settings.worksheet!
       request.feed.counters.unprocessed -= 1;
       request.feed.counters.error += 1;
-      ctx.error(`[${ws.getName()}:${request.feed.index+1}] ${msg}.`);
+      ctx.error(`${renderLogHeader(request.feed)} ${msg}.`);
     }
     ctx.rateLimiter.enqueue(ctx, webhook, request.payload, onSuccess, onError);
   }
@@ -116,10 +116,9 @@ function execute(ctx: Context) {
   while (feedSet.size > 0 && ctx.rateLimiter.getTime() - (ctx.now) < CONFIG.RUNTIME) {
     for (const feed of Array.from(feedSet)) {
       if (feed.counters.unprocessed === 0) {
-        const sheet = feed.settings.worksheet!;
         const msg = `OK: ${renderFeedCounters(feed.counters)}`;
         setFeedStatus(feed, ctx, msg, feed.result?.guid);
-        ctx.info(`[${sheet.getName()}:${feed.index+1}] ${msg}.`);
+        ctx.info(`${renderLogHeader(feed)} ${msg}.`);
         feedSet.delete(feed);
       }
     }

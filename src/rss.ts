@@ -2,7 +2,7 @@
  * rss.js - functions related to processing RSS feeds.
  */
 
-import { Result, STATUS, Feed, XmlDocument, Embed, SettingsInterface, XmlElement } from './common.js';
+import { Result, STATUS, Feed, XmlDocument, Embed, SettingsInterface, XmlElement, renderLogHeader } from './common.js';
 import { Context } from './context.js';
 import { nodeToMarkdown } from './markdown.js';
 
@@ -13,11 +13,11 @@ export function processFeed(feed: Feed, ctx: Context): Result {
   // skip feed that has recently been scanned
   const diff = ctx.now - feed.time;
   if (diff < feed.settings.feed_frequency.value) {
-    ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+    ctx.info(`${renderLogHeader(feed)} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
     return { status: STATUS.SKIP, status_text: '' };
   }
 
-  ctx.info(`${feed.feed} - fetching`);
+  ctx.info(`${renderLogHeader(feed)} - fetching`);
   const res = ctx.fetch(feed.feed);
   if (!String(res.getResponseCode()).startsWith('2')) {
     return {
@@ -70,7 +70,7 @@ function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
     try {
       embeds.push(buildEmbed(ctx, feed.settings, item));
     } catch (e) {
-      console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`)
+      ctx.warn(`${renderLogHeader(feed)} [${guid}] Could not process embed: "${e}"`)
     }
   }
 
@@ -113,9 +113,10 @@ export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElem
   const pubDate = xml.getChild('pubDate')?.getValue();
   if (pubDate) {
     try {
-      const epoch = Math.floor(new Date(pubDate).getTime() / 1000);
+      const date = new Date(pubDate);
+      const epoch = Math.floor(date.getTime() / 1000);
       embed._ts = epoch;
-      embed.footer = `Published <t:${epoch}:R>`;
+      embed.timestamp = date.toISOString();
     } catch (e) {
       console.warn(`Failed to parse pubDate: "${pubDate}"`)
     }

@@ -1,7 +1,7 @@
 /**
  * rss.js - functions related to processing RSS feeds.
  */
-import { STATUS } from './common.js';
+import { STATUS, renderLogHeader } from './common.js';
 import { nodeToMarkdown } from './markdown.js';
 /**
  * Request an RSS feed and process it into a resulting set of embeds.
@@ -10,10 +10,10 @@ export function processFeed(feed, ctx) {
     // skip feed that has recently been scanned
     const diff = ctx.now - feed.time;
     if (diff < feed.settings.feed_frequency.value) {
-        ctx.info(`${feed.feed} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
+        ctx.info(`${renderLogHeader(feed)} - hit frequency limit of ${feed.settings.feed_frequency} seconds (${diff / 1000}s) - skipping`);
         return { status: STATUS.SKIP, status_text: '' };
     }
-    ctx.info(`${feed.feed} - fetching`);
+    ctx.info(`${renderLogHeader(feed)} - fetching`);
     const res = ctx.fetch(feed.feed);
     if (!String(res.getResponseCode()).startsWith('2')) {
         return {
@@ -64,7 +64,7 @@ function parseRssXml(content, feed, ctx) {
             embeds.push(buildEmbed(ctx, feed.settings, item));
         }
         catch (e) {
-            console.warn(`${feed.feed} [${guid}] Could not build embed: "${e}"`);
+            ctx.warn(`${renderLogHeader(feed)} [${guid}] Could not process embed: "${e}"`);
         }
     }
     // TODO: better separate this.
@@ -105,9 +105,10 @@ export function buildEmbed(_, settings, xml) {
     const pubDate = (_c = xml.getChild('pubDate')) === null || _c === void 0 ? void 0 : _c.getValue();
     if (pubDate) {
         try {
-            const epoch = Math.floor(new Date(pubDate).getTime() / 1000);
+            const date = new Date(pubDate);
+            const epoch = Math.floor(date.getTime() / 1000);
             embed._ts = epoch;
-            embed.footer = `Published <t:${epoch}:R>`;
+            embed.timestamp = date.toISOString();
         }
         catch (e) {
             console.warn(`Failed to parse pubDate: "${pubDate}"`);

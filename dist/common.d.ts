@@ -5,6 +5,8 @@
 export declare const DEFAULT_APP_NAME = "DiscouRSS";
 export declare function truthy<T>(test: T, other?: T): T | undefined;
 export declare function first<T>(...tests: T[]): T | undefined;
+/** Returns "[SheetName:RowNum]" for a given feed. */
+export declare function renderLogHeader(feed: Feed): string;
 export declare function getWebhookId(url: string): string | undefined;
 export type Button = "CLOSE" | "OK" | "CANCEL" | "YES" | "NO";
 export type ButtonSet = "OK" | "OK_CANCEL" | "YES_NO" | "YES_NO_CANCEL";
@@ -52,7 +54,10 @@ export interface Embed {
         name: string;
         value: string;
     }[];
-    footer?: string;
+    footer?: {
+        text: string;
+    };
+    timestamp?: string;
     _ts?: number;
 }
 export interface Message {

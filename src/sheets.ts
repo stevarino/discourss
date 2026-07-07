@@ -6,6 +6,7 @@ import {
   SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, PartialFeed, FeedLookup,
   Feed, Spreadsheet, StyleBuilder, CELL_VALUE, Worksheet, SHEET_HEADER_TYPES,
   getWebhookId,
+  renderLogHeader,
 } from './common.js';
 import {LOG_LEVEL, LOG_RECORD, errorToString, Context} from './context.js'
 
@@ -173,7 +174,7 @@ export function readFeedsTabs(ctx: Context): Feed[] {
       if (!settings.feedPatternRe.test(feed.feed)) {
         // entries with spaces are likely descriptions
         if (!feed.feed.includes(' ')) {
-          ctx.warn(`"${feed.feed}" failed to match ${settings.feedPatternRe.source}`);
+          ctx.warn(`"${renderLogHeader(feed as Feed)}" failed to match ${settings.feedPatternRe.source}`);
         }
         continue;
       }
@@ -186,7 +187,7 @@ export function readFeedsTabs(ctx: Context): Feed[] {
     }
   }
   const webhookIds = Array.from(webhooks).map(s => getWebhookId(s) ?? '?');
-  ctx.info(`webhookMap = ${JSON.stringify(
+  console.log(`webhookMap = ${JSON.stringify(
     {sheet: ctx.spreadsheet.getId(), webhookIds})}`);
   // earliest first
   feeds.sort((a, b) => a.time - b.time);
@@ -206,9 +207,9 @@ export function setFeedStatus(feed: Feed, ctx: Context, status: string, guid?: s
   const maxCol = Math.max(timeCol, statusCol, guidCol);
   const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
   if (!range) {
-    throw new Error(`could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
+    throw new Error(`${renderLogHeader(feed)} could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
   }
-  const msg = `[${sheet.getName()}:${feed.index+1}] ${status}`;
+  const msg = `${renderLogHeader(feed)} ${status}`;
   if (status.startsWith('ERROR')) {
     ctx.error(msg);
   } else {

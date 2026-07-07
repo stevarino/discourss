@@ -1,7 +1,7 @@
 /**
  * index.js - main entry point for code
  */
-import { STATUS, DEFAULT_APP_NAME, CONFIG, renderFeedCounters } from './common.js';
+import { renderLogHeader, STATUS, DEFAULT_APP_NAME, CONFIG, renderFeedCounters } from './common.js';
 import { LOG_LEVEL, errorToString, log, Context } from './context.js';
 import { readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus, } from './sheets.js';
 import { processFeed } from './rss.js';
@@ -22,6 +22,7 @@ function wrapper(method, ctx, func) {
         ctx.limits = Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)]));
         if (method) {
             ctx.info(`--- START ${method} (${version}) ---`);
+            console.log(`starting: ${method} ${spreadsheet.getId()} (${version})`);
         }
         return func(ctx);
     }
@@ -40,7 +41,7 @@ function wrapper(method, ctx, func) {
 function execute(ctx) {
     var _a, _b, _c, _d;
     const feeds = readFeedsTabs(ctx);
-    ctx.info(`Read ${feeds.length} rows`);
+    ctx.info(`Found ${feeds.length} RSS feeds`);
     const requests = [];
     for (const feed of feeds) {
         let result;
@@ -80,10 +81,9 @@ function execute(ctx) {
             request.feed.counters.successful += 1;
         };
         const onError = (msg) => {
-            const ws = request.feed.settings.worksheet;
             request.feed.counters.unprocessed -= 1;
             request.feed.counters.error += 1;
-            ctx.error(`[${ws.getName()}:${request.feed.index + 1}] ${msg}.`);
+            ctx.error(`${renderLogHeader(request.feed)} ${msg}.`);
         };
         ctx.rateLimiter.enqueue(ctx, webhook, request.payload, onSuccess, onError);
     }
@@ -91,10 +91,9 @@ function execute(ctx) {
     while (feedSet.size > 0 && ctx.rateLimiter.getTime() - (ctx.now) < CONFIG.RUNTIME) {
         for (const feed of Array.from(feedSet)) {
             if (feed.counters.unprocessed === 0) {
-                const sheet = feed.settings.worksheet;
                 const msg = `OK: ${renderFeedCounters(feed.counters)}`;
                 setFeedStatus(feed, ctx, msg, (_c = feed.result) === null || _c === void 0 ? void 0 : _c.guid);
-                ctx.info(`[${sheet.getName()}:${feed.index + 1}] ${msg}.`);
+                ctx.info(`${renderLogHeader(feed)} ${msg}.`);
                 feedSet.delete(feed);
             }
         }

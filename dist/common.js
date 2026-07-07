@@ -17,6 +17,11 @@ export function first(...tests) {
     }
     return undefined;
 }
+/** Returns "[SheetName:RowNum]" for a given feed. */
+export function renderLogHeader(feed) {
+    const ws = feed.settings.worksheet;
+    return `[${ws.getName()}:${feed.index + 1}]`;
+}
 /**
  * Regex to extract webhook ID.
  * domain = discord | discordapp
