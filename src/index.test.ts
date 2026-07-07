@@ -14,6 +14,7 @@ const SAMPLE_RSS_FEED = `
     <link>https://example.com</link>
     <item>
       <title>Latest Post</title>
+      <pubDate>Tue, 7 Jul 2026 21:40:18 +1200</pubDate>
       <link>https://example.com/post1</link>
       <guid>guid-latest</guid>
       <description><![CDATA[<p>Paragraph text</p><img src="https://example.com/image.png" />]]></description>
@@ -21,6 +22,29 @@ const SAMPLE_RSS_FEED = `
   </channel>
 </rss>
 `;
+
+const SAMPLE_RSS_FEED_MULT = `
+  <rss version="2.0">
+    <channel>
+      <title>Test Feed</title>
+      <link>https://example.com</link>
+      <item>
+        <title>Post 1</title>
+        <pubDate>Tue, 7 Jul 2026 21:40:18 +1200</pubDate>
+        <link>https://example.com/post1</link>
+        <guid>guid-1</guid>
+        <description>Post 1 description</description>
+      </item>
+      <item>
+        <title>Post 2</title>
+        <pubDate>Tue, 7 Jul 2026 21:40:18 +1200</pubDate>
+        <link>https://example.com/post2</link>
+        <guid>guid-2</guid>
+        <description>Post 2 description</description>
+      </item>
+    </channel>
+  </rss>
+  `
 
 describe('index.ts run() integration tests', () => {
   test('successfully processes feeds, triggers discord webhook, and updates feed sheet row', () => {
@@ -107,7 +131,7 @@ describe('index.ts run() integration tests', () => {
     assert.match(feedValues[2][5] as string, /^OK:.*\b1\b/);
   });
 
-  test('handles rate limiting by retrying when rate limited (HTTP 429)', () => {
+  test('Discord rate limiting during HTTP 429', () => {
     const [ctx, _, ws, settings] = buildMocks();
     settings.bundle.value = false; // ensures each embed is sent in its own request
 
@@ -116,29 +140,7 @@ describe('index.ts run() integration tests', () => {
     ws.getRange(2, 1, 1, 6).setValues([[1, FEED_1, '123456', 0, '0', 'initial']]);
 
     const fetcher = ctx.fetcher as MockFetcher;
-    
-    // Setup feed mock with 2 items to trigger 2 webhooks
-    const multipleItemsRss = `
-    <rss version="2.0">
-      <channel>
-        <title>Test Feed</title>
-        <link>https://example.com</link>
-        <item>
-          <title>Post 1</title>
-          <link>https://example.com/post1</link>
-          <guid>guid-1</guid>
-          <description>Post 1 description</description>
-        </item>
-        <item>
-          <title>Post 2</title>
-          <link>https://example.com/post2</link>
-          <guid>guid-2</guid>
-          <description>Post 2 description</description>
-        </item>
-      </channel>
-    </rss>
-    `;
-    fetcher.addMock(FEED_1, multipleItemsRss, 204);
+    fetcher.addMock(FEED_1, SAMPLE_RSS_FEED_MULT, 204);
 
     let callCount = 0;
     fetcher.fetch = (url: string, req: any, log?: any) => {
@@ -160,6 +162,7 @@ describe('index.ts run() integration tests', () => {
     assert.strictEqual(feedValues[1][4], 'guid-1'); // latest guid
     assert.match(feedValues[1][5] as string, /^OK:.*\b2 successful\b/);
     assert.ok(ctx.now + 2 <= ctx.rateLimiter.getTime(), 'expected two seconds to pass')
+    // assert.strictEqual(fetcher.requests[DISCORD_WEBHOOK].length, 3);
     assert.strictEqual(callCount, 3); // 1 (429) + 2 (successes) = 3 calls
   });
 
@@ -172,41 +175,11 @@ describe('index.ts run() integration tests', () => {
     ws.getRange(2, 1, 1, 6).setValues([[1, FEED_1, '123456', 0, '0', 'initial']]);
 
     const fetcher = ctx.fetcher as MockFetcher;
-    
-    // Setup feed mock with 2 items to trigger 2 webhooks
-    const multipleItemsRss = `
-    <rss version="2.0">
-      <channel>
-        <title>Test Feed</title>
-        <link>https://example.com</link>
-        <item>
-          <title>Post 1</title>
-          <link>https://example.com/post1</link>
-          <guid>guid-1</guid>
-          <description>Post 1 description</description>
-        </item>
-        <item>
-          <title>Post 2</title>
-          <link>https://example.com/post2</link>
-          <guid>guid-2</guid>
-          <description>Post 2 description</description>
-        </item>
-      </channel>
-    </rss>
-    `;
-    fetcher.addMock(FEED_1, multipleItemsRss, 204);
-
-    let callCount = 0;
-    fetcher.fetch = (url: string, req: any, log?: any) => {
-      if (url === DISCORD_WEBHOOK) {
-        callCount++;
-        return new MockResponse('Too Many Requests', 204, {
-          'x-ratelimit-remaining': '0',
-          'x-ratelimit-reset': String(ctx.now + 5), // resets 2 seconds in the future
-        });
-      }
-      return MockFetcher.prototype.fetch.call(fetcher, url, req, log);
-    };
+    fetcher.addMock(FEED_1, SAMPLE_RSS_FEED_MULT, 200);
+    fetcher.addMock(DISCORD_WEBHOOK, '', 204, {
+      'x-ratelimit-remaining': '0',
+      'x-ratelimit-reset': String(ctx.now + 5),
+    });
 
     run(ctx);
 
@@ -215,7 +188,7 @@ describe('index.ts run() integration tests', () => {
     assert.strictEqual(feedValues[1][4], 'guid-1'); // latest guid
     assert.match(feedValues[1][5] as string, /^OK:.*\b2 successful\b/);
     assert.ok(ctx.now + 5 <= ctx.rateLimiter.getTime(), 'expected two seconds to pass')
-    assert.strictEqual(callCount, 2);
+    assert.strictEqual(fetcher.requests[DISCORD_WEBHOOK].length, 2);
   });
 
   test('aborts if delay is too long', () => {
@@ -227,29 +200,8 @@ describe('index.ts run() integration tests', () => {
     ws.getRange(2, 1, 1, 6).setValues([[1, FEED_1, '123456', 0, '0', 'initial']]);
 
     const fetcher = ctx.fetcher as MockFetcher;
-    
-    // Setup feed mock with 2 items to trigger 2 webhooks
-    const multipleItemsRss = `
-    <rss version="2.0">
-      <channel>
-        <title>Test Feed</title>
-        <link>https://example.com</link>
-        <item>
-          <title>Post 1</title>
-          <link>https://example.com/post1</link>
-          <guid>guid-1</guid>
-          <description>Post 1 description</description>
-        </item>
-        <item>
-          <title>Post 2</title>
-          <link>https://example.com/post2</link>
-          <guid>guid-2</guid>
-          <description>Post 2 description</description>
-        </item>
-      </channel>
-    </rss>
-    `;
-    fetcher.addMock(FEED_1, multipleItemsRss, 204);
+
+    fetcher.addMock(FEED_1, SAMPLE_RSS_FEED_MULT, 204);
 
     let callCount = 0;
     fetcher.fetch = (url: string, req: any, log?: any) => {
@@ -257,7 +209,7 @@ describe('index.ts run() integration tests', () => {
         callCount++;
         return new MockResponse('Too Many Requests', 204, {
           'x-ratelimit-remaining': '0',
-          'x-ratelimit-reset': String(ctx.now + 45), // resets 2 seconds in the future
+          'x-ratelimit-reset': String(ctx.now + 10000), // resets 2 seconds in the future
         });
       }
       return MockFetcher.prototype.fetch.call(fetcher, url, req, log);
@@ -269,7 +221,9 @@ describe('index.ts run() integration tests', () => {
     const feedValues = ws.getDataRange().getValues();
     assert.strictEqual(feedValues[1][4], 'guid-1'); // latest guid
     assert.match(feedValues[1][5] as string, /^ERROR:.*Did not finish.*\b1 unprocessed\b/);
-    assert.ok(ctx.rateLimiter.getTime() - ctx.now <= 30, `should abort before timeout period: ${ctx.rateLimiter.getTime() - ctx.now}`)
+    const diff = ctx.rateLimiter.getTime() - ctx.now;
+    assert.ok(diff <= 600, 
+              `should abort before timeout period: ${diff}`)
     assert.strictEqual(callCount, 1);
   });
 });

@@ -58,6 +58,7 @@ export declare class Context {
     fetcher: Fetcher;
     logger: ((logs: LOG_RECORD[]) => void) | undefined;
     rateLimiter: Ratelimiter;
+    isTest: boolean;
     limits: {
         CONTENT_LENGTH: number;
         DESC_LENGTH: number;
@@ -71,10 +72,12 @@ export declare class Context {
     constructor(spreadsheet: Spreadsheet, logs?: LOG_RECORD[]);
     loadSettings(): void;
     getSettings(): Record<string, SidebarSheetsData>;
-    getSheetData(sheetId: string): SidebarSheetsData;
-    getWorksheet(sheetId: string): Worksheet | undefined;
-    setSettings(sheetId: string, values: [string, CELL_VALUE][]): string[];
-    deleteSettings(sheetId: string): void;
+    getSheetData(sheetId: string | number | Worksheet): SidebarSheetsData;
+    getWorksheet(sheetId: string | number | Worksheet): Worksheet | undefined;
+    getAllSheetSettings(): SheetSettings[];
+    getSheetSettings(sheetId: string | number | Worksheet): SheetSettings | undefined;
+    setSettings(sheetId: string | number | Worksheet, values: [string, CELL_VALUE][]): string[];
+    deleteSettings(sheetId: string | number | Worksheet): void;
     reset(spreadsheet?: Spreadsheet): void;
     fetch(url: string, params?: FetchRequest): FetchResponse;
     log(level: LOG_LEVEL, message: string): void;

@@ -6,17 +6,15 @@ import * as CheerioLib from 'cheerio';
 import {
   renderLogHeader, Result, STATUS, DEFAULT_APP_NAME, SidebarData,
   SidebarSaveRequest, SidebarSaveResponse, ButtonSet, Button, CONFIG,
-  SidebarPollResponse, Feed, FeedRequest, renderFeedCounters
+  SidebarPollResponse, Feed, FeedRequest, renderFeedCounters,
+  getWebhookId
 } from './common.js';
-import {
-  LOG_LEVEL, LOG_RECORD, errorToString, log, Context
-} from './context.js';
-import { 
-  readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus,
-} from './sheets.js';
+import { LOG_LEVEL, LOG_RECORD, errorToString, log, Context } from './context.js';
+import { readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
 import { normalizeMessages } from './discord.js';
+import { rssFinder } from './rss-finder.js';
 
 declare global {
   const Cheerio: typeof CheerioLib;
@@ -41,9 +39,8 @@ function wrapper<T>(
     // apply safety tolerance (90%);
     ctx.limits = Object.fromEntries(Object.entries(ctx.limits).map(
       ([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)])) as typeof ctx.limits;
-    if (method) {
+    if (method && !ctx.isTest) {
       ctx.info(`--- START ${method} (${version}) ---`);
-      console.log(`starting: ${method} ${spreadsheet.getId()} (${version})`);
     }
     return func(ctx);
   } catch (e) {
@@ -61,6 +58,17 @@ function wrapper<T>(
 function execute(ctx: Context) {
   const feeds = readFeedsTabs(ctx);
   ctx.info(`Found ${feeds.length} RSS feeds`);
+
+  if (!ctx.isTest) {
+    const webhooks = ctx.getAllSheetSettings().map(
+      s => getWebhookId(s.webhook.get()) ?? 0);
+    console.log(JSON.stringify({tele: {
+      ss: ctx.spreadsheet.getId(),
+      v: version,
+      wh: webhooks,
+    }}));
+  }
+
 
   const requests: FeedRequest[] = [];
   for (const feed of feeds) {
@@ -241,6 +249,23 @@ export function alert(msg: string, buttonset?: ButtonSet): Button {
     btn = SpreadsheetApp.getUi().alert(msg);
   }
   return btn.toString() as Button;
+}
+
+export function performRssFinder(url: string): void {
+  wrapper('rssFinder', undefined, ctx => {
+    const sheet = SpreadsheetApp.getActiveSheet();
+    const settings = ctx.getSheetSettings(sheet);
+    if (!settings) {
+      alert('Worksheet settings not found.')
+      return;
+    }
+    const result = rssFinder(ctx, settings, url);
+    if (result) {
+      alert(result);
+    } else {
+      alert('Feed added successfully.');
+    }
+  })
 }
 
 export function deleteSettings(sheetId: string): SidebarSaveResponse | null {

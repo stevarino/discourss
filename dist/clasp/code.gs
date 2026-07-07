@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-783-406-812-042';
+const version = '1-783-461-439-021';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -81,7 +81,7 @@ var STATUS;
     STATUS[STATUS["ERROR"] = 3] = "ERROR";
     STATUS[STATUS["NONE"] = 4] = "NONE";
 })(STATUS || (STATUS = {}));
-const SHEET_HEADERS = {
+const HEADERS = {
     index: {
         label: 'Index',
         help: '',
@@ -107,8 +107,8 @@ const SHEET_HEADERS = {
         help: 'Last run status',
     },
 };
-const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(v => v.help !== '').map(v => v.label);
-const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k]));
+const EXPECTED_HEADERS = Object.values(HEADERS).filter(v => v.help !== '').map(v => v.label);
+const HEADER_LOOKUP = Object.fromEntries(Object.entries(HEADERS).map(([k, v]) => [v.label, k]));
 /**
  * Fetcher code
  */
@@ -425,6 +425,7 @@ class Context {
         this.sheetSettings = {};
         this.logs = [];
         this.rateLimiter = new Ratelimiter();
+        this.isTest = false;
         // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
         this.limits = {
             CONTENT_LENGTH: 2000,
@@ -445,7 +446,7 @@ class Context {
     }
     loadSettings() {
         for (const sheet of this.spreadsheet.getSheets()) {
-            this.sheetSettings[sheet.getSheetId()] = new SheetSettings(sheet);
+            this.sheetSettings[String(sheet.getSheetId())] = new SheetSettings(sheet);
         }
     }
     getSettings() {
@@ -461,6 +462,7 @@ class Context {
         return settings;
     }
     getSheetData(sheetId) {
+        sheetId = getSheetId(sheetId);
         const record = this.sheetSettings[sheetId];
         if (!record) {
             throw new Error(`Sheet "${sheetId}" not found.`);
@@ -474,15 +476,21 @@ class Context {
     }
     getWorksheet(sheetId) {
         var _a;
-        return (_a = this.sheetSettings[sheetId]) === null || _a === void 0 ? void 0 : _a.worksheet;
+        return (_a = this.sheetSettings[getSheetId(sheetId)]) === null || _a === void 0 ? void 0 : _a.worksheet;
+    }
+    getAllSheetSettings() {
+        return Object.values(this.sheetSettings).filter(s => s.isSet);
+    }
+    getSheetSettings(sheetId) {
+        return this.sheetSettings[getSheetId(sheetId)];
     }
     setSettings(sheetId, values) {
         var _a, _b;
-        return (_b = (_a = this.sheetSettings[sheetId]) === null || _a === void 0 ? void 0 : _a.setSettings(values)) !== null && _b !== void 0 ? _b : [`Unrecognized sheet: "${sheetId}"`];
+        return (_b = (_a = this.sheetSettings[getSheetId(sheetId)]) === null || _a === void 0 ? void 0 : _a.setSettings(values)) !== null && _b !== void 0 ? _b : [`Unrecognized sheet: "${sheetId}"`];
     }
     deleteSettings(sheetId) {
         var _a;
-        (_a = this.sheetSettings[sheetId]) === null || _a === void 0 ? void 0 : _a.deleteSettings();
+        (_a = this.sheetSettings[getSheetId(sheetId)]) === null || _a === void 0 ? void 0 : _a.deleteSettings();
     }
     reset(spreadsheet) {
         if (spreadsheet) {
@@ -515,6 +523,15 @@ class Context {
         log(this.logs, message, LOG_LEVEL.DEBUG);
     }
 }
+function getSheetId(sheetId) {
+    if (typeof sheetId === 'object') {
+        return String(sheetId.getSheetId());
+    }
+    else if (typeof sheetId === 'number') {
+        return String(sheetId);
+    }
+    return sheetId;
+}
 
 /**
  * sheets.js - functions related to processing the spreadsheet.
@@ -545,7 +562,7 @@ function setupFeedsTab(worksheet) {
     for (const header of EXPECTED_HEADERS) {
         if (!values[0].includes(header)) {
             const index = values[0].length;
-            const { label, help } = SHEET_HEADERS[HEADER_LOOKUP[header]];
+            const { label, help } = HEADERS[HEADER_LOOKUP[header]];
             values[0][index] = label;
             values[1][index] = help;
             newData[0].push(label);
@@ -565,9 +582,9 @@ function setupFeedsTab(worksheet) {
         worksheet.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
         worksheet.autoResizeColumns(lastCol + 1, newData[0].length);
         const columnWidthMults = [
-            [SHEET_HEADERS.feed.label, 4],
-            [SHEET_HEADERS.discord.label, 2],
-            [SHEET_HEADERS.status.label, 8],
+            [HEADERS.feed.label, 4],
+            [HEADERS.discord.label, 2],
+            [HEADERS.status.label, 8],
         ];
         for (const [label, mult] of columnWidthMults) {
             const feedIndex = newData[0].indexOf(label) + 1;
@@ -629,6 +646,15 @@ function writeLogs(sheet, logs, logger) {
 function getFeedColumn(feedHeaders, header) {
     return feedHeaders.indexOf(header);
 }
+function validateHeaders(values) {
+    const feedHeaders = [];
+    feedHeaders.push(...values);
+    const missing = EXPECTED_HEADERS.filter(h => !feedHeaders.includes(h));
+    if (missing.length !== 0) {
+        throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
+    }
+    return feedHeaders;
+}
 function readFeedsTabs(ctx) {
     const feeds = [];
     const webhooks = new Set();
@@ -639,18 +665,9 @@ function readFeedsTabs(ctx) {
         const values = settings.worksheet.getDataRange().getValues();
         for (let i = 0; i < values.length; i++) {
             // setup columns for dict-like lookup.
-            if (values[i].includes(SHEET_HEADERS.feed.label)) {
+            if (values[i].includes(HEADERS.feed.label)) {
                 settings.feedHeaders.length = 0;
-                settings.feedHeaders.push(...values[i]);
-                const missing = [];
-                for (const v of EXPECTED_HEADERS) {
-                    if (!settings.feedHeaders.includes(v)) {
-                        missing.push(v);
-                    }
-                }
-                if (missing.length !== 0) {
-                    throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
-                }
+                settings.feedHeaders.push(...validateHeaders(values[i]));
                 continue;
             }
             const feed = { index: i, settings };
@@ -682,22 +699,23 @@ function readFeedsTabs(ctx) {
             });
         }
     }
-    const webhookIds = Array.from(webhooks).map(s => { var _a; return (_a = getWebhookId(s)) !== null && _a !== void 0 ? _a : '?'; });
-    console.log(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
 }
-function setFeedStatus(feed, ctx, status, guid) {
-    const sheet = feed.settings.worksheet;
-    const timeCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.time.label);
-    const statusCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.status.label);
-    const guidCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.guid.label);
-    const maxCol = Math.max(timeCol, statusCol, guidCol);
-    const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
-    if (!range) {
-        throw new Error(`${renderLogHeader(feed)} could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
+function updateFeedRow(ws, headers, rowNo, update) {
+    const cols = update.map(([hdr]) => getFeedColumn(headers, hdr.label));
+    const colLast = Math.max(1, ...cols) + 1;
+    const range = ws.getRange(rowNo, 1, 1, colLast);
+    const values = range.getValues();
+    for (const [i, [_, val]] of update.entries()) {
+        if (val !== undefined) {
+            values[0][cols[i]] = val;
+        }
     }
+    range.setValues(values);
+}
+function setFeedStatus(feed, ctx, status, guid) {
     const msg = `${renderLogHeader(feed)} ${status}`;
     if (status.startsWith('ERROR')) {
         ctx.error(msg);
@@ -705,13 +723,11 @@ function setFeedStatus(feed, ctx, status, guid) {
     else {
         ctx.info(msg);
     }
-    const data = range.getValues();
-    data[0][timeCol] = Math.floor(ctx.now);
-    data[0][statusCol] = status;
-    if (guid !== undefined) {
-        data[0][guidCol] = guid;
-    }
-    range.setValues(data);
+    updateFeedRow(feed.settings.worksheet, feed.settings.feedHeaders, feed.index + 1, [
+        [HEADERS.time, ctx.now],
+        [HEADERS.guid, guid],
+        [HEADERS.status, status],
+    ]);
 }
 
 /** Types of elements found in htmlparser2's DOM */
@@ -955,6 +971,8 @@ function elementToMarkdown(node, path, children) {
 
 /**
  * rss.js - functions related to processing RSS feeds.
+ *
+ * TODO(#6): Inspect to transparently handle both RSS and Atom feeds.
  */
 /**
  * Request an RSS feed and process it into a resulting set of embeds.
@@ -976,40 +994,16 @@ function processFeed(feed, ctx) {
     }
     const text = res.getContentText();
     ctx.debug(`Received ${text.length} bytes`);
-    return parseRssXml(text, feed, ctx);
+    return parseFeed(text, feed, ctx);
 }
-function parseRssXml(content, feed, ctx) {
-    var _a;
+function parseFeed(content, feed, ctx) {
+    var _a, _b, _c;
     const embeds = [];
-    const doc = XmlService.parse(content.trim());
-    const root = doc.getRootElement();
-    if (!root) {
-        throw Error('Failed to parse feed');
-    }
-    const channel = root.getChild('channel');
-    if (!channel) {
-        throw Error('channel element not found');
-    }
-    let firstGuid = '';
+    const prevGuid = (_a = feed.guid) !== null && _a !== void 0 ? _a : '';
+    const xmlFeed = parseXML(content);
     let foundLast = false;
-    let status = 'ok';
-    const items = channel.getChildren("item");
-    ctx.debug(`Loaded RSS: ${items.length} items`);
-    if (items.length === 0) {
-        firstGuid = '0';
-        status = 'no items';
-    }
-    for (const item of items) {
-        const guid = (_a = item.getChild('guid')) === null || _a === void 0 ? void 0 : _a.getText();
-        // ctx.debug(`Found item: ${guid}`);
-        if (!guid) {
-            ctx.warn(`GUID not specified on feed item. Skipping.`);
-            continue;
-        }
-        if (!firstGuid) {
-            firstGuid = guid;
-        }
-        if (guid === feed.guid) {
+    for (const item of xmlFeed.items) {
+        if (item.guid === feed.guid) {
             foundLast = true;
             break;
         }
@@ -1017,55 +1011,76 @@ function parseRssXml(content, feed, ctx) {
             embeds.push(buildEmbed(ctx, feed.settings, item));
         }
         catch (e) {
-            ctx.warn(`${renderLogHeader(feed)} [${guid}] Could not process embed: "${e}"`);
+            ctx.warn(`${renderLogHeader(feed)} "${item.guid}": Could not process embed: "${e}"`);
         }
     }
     // TODO: better separate this.
     // new (to us) feed. we only care about entries moving forward, not
     // entries we have already seen.
-    if (!foundLast && String(feed.guid) !== '0') {
-        status = 'new feed';
+    if (!foundLast && prevGuid !== '0') {
         embeds.length = 0;
-    }
-    else {
-        status = `found ${embeds.length}`;
     }
     // oldest first
     embeds.reverse();
-    ctx.debug(`Processed ${embeds.length} items`);
+    const status = `Processed ${embeds.length}`;
+    ctx.debug(`${renderLogHeader(feed)} ${status}`);
     const result = {
         status: STATUS.OK,
         status_text: status,
-        guid: firstGuid,
+        guid: (_c = (_b = xmlFeed.items[0]) === null || _b === void 0 ? void 0 : _b.guid) !== null && _c !== void 0 ? _c : '0',
         embeds: embeds,
     };
     feed.result = result;
     return result;
 }
-function buildEmbed(_, settings, xml) {
-    var _a, _b, _c;
-    const desc = xml.getChild('description');
-    if (!desc) {
-        throw new Error(`Missing description`);
+/** Parses XML Content and returns a normalized XMLFeed. */
+function parseXML(content) {
+    var _a, _b;
+    const doc = XmlService.parse(content);
+    const root = doc.getRootElement();
+    if (!root) {
+        throw Error('Failed to parse feed.');
     }
-    const html = Cheerio.load(desc.getValue());
+    const channel = root.getChild('channel');
+    if (!channel) {
+        throw Error('Channel element not found.');
+    }
+    const xmlFeed = {
+        title: (_a = channel.getChild('title')) === null || _a === void 0 ? void 0 : _a.getValue(),
+        link: (_b = channel.getChild('link')) === null || _b === void 0 ? void 0 : _b.getValue(),
+        items: [],
+    };
+    for (const item of channel.getChildren("item")) {
+        const missing = ['title', 'link', 'guid', 'pubDate', 'description'].filter(field => !Boolean(item.getChild(field)));
+        if (missing.length) {
+            console.debug(`Missing items: [${missing.join(', ')}], skipping.`);
+            continue;
+        }
+        xmlFeed.items.push({
+            title: item.getChild('title').getText(),
+            link: item.getChild('link').getText(),
+            guid: item.getChild('guid').getText(),
+            pubDate: new Date(item.getChild('pubDate').getText()),
+            description: item.getChild('description').getValue()
+        });
+    }
+    return xmlFeed;
+}
+function buildEmbed(ctx, settings, item) {
+    const html = Cheerio.load(item.description);
     const embed = {
-        title: (_a = xml.getChild("title")) === null || _a === void 0 ? void 0 : _a.getText(),
-        url: (_b = xml.getChild('link')) === null || _b === void 0 ? void 0 : _b.getText(),
+        title: item.title,
+        url: item.link,
         description: nodeToMarkdown(html),
         fields: [],
     };
-    const pubDate = (_c = xml.getChild('pubDate')) === null || _c === void 0 ? void 0 : _c.getValue();
-    if (pubDate) {
-        try {
-            const date = new Date(pubDate);
-            const epoch = Math.floor(date.getTime() / 1000);
-            embed._ts = epoch;
-            embed.timestamp = date.toISOString();
-        }
-        catch (e) {
-            console.warn(`Failed to parse pubDate: "${pubDate}"`);
-        }
+    try {
+        const epoch = Math.floor(item.pubDate.getTime() / 1000);
+        embed._ts = epoch;
+        embed.timestamp = item.pubDate.toISOString();
+    }
+    catch (e) {
+        ctx.debug(`Failed to parse pubDate: "${item.pubDate}"`);
     }
     const image = html('img').attr('src');
     if (image) {
@@ -1076,7 +1091,7 @@ function buildEmbed(_, settings, xml) {
             embed.thumbnail = { url: image };
         }
     }
-    // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
+    ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
     return embed;
 }
 
@@ -1225,6 +1240,112 @@ function stringify(obj) {
     return JSON.stringify(obj, (key, val) => key.startsWith('_') ? undefined : val);
 }
 
+/** rss-finder.js - Given a URL, find the RSS URL and enter it to the sheet */
+const rssDocPtn = /<rss[^>]+ xmlns:atom="http:\/\/www.w3.org\/2005\/Atom"/;
+function rssFinder(ctx, settings, url) {
+    const res = getResponse(ctx.fetch(url));
+    const result = testRSSContent(ctx, res);
+    if (result === undefined) {
+        return addRSSFeed(ctx, settings, url, res.content);
+    }
+    else if (result !== "") {
+        return result;
+    }
+    if (!(res.contentType.includes('text/html') || res.content.includes('<html'))) {
+        ctx.info('Document does not appear to be HTML - aborting.');
+        return 'Unable to find an RSS feed at or linked from the specified URL.';
+    }
+    const doc = Cheerio.load(res.content, { baseURI: url });
+    // https://blog.whatwg.org/feed-autodiscovery
+    // <link rel="alternate" type="application/atom+xml"
+    //    href="/feed.atom" title="Atom Feed">
+    // <link rel="alternate" type="application/rss+xml"
+    //    href="/feed.rss" title="RSS Feed">
+    for (const [label, linkType] of [
+        ['Atom RSS', 'application/atom+xml'], ['RSS 2.0', 'application/rss+xml']
+    ]) {
+        const feedURL = doc(`link[type=${linkType}]`).attr('href');
+        if (feedURL) {
+            ctx.info(`Found ${label} URL: ${feedURL}`);
+            const res = getResponse(ctx.fetch(feedURL));
+            const result = testRSSContent(ctx, res);
+            if (result === undefined) {
+                return addRSSFeed(ctx, settings, feedURL, res.content);
+            }
+            else if (result !== "") {
+                ctx.info(`${label} Response: ${result}`);
+            }
+            else {
+                ctx.info(`Unable to resolve ${label} document.`);
+            }
+        }
+    }
+    const hrefs = doc('a[href*="rss"').map((_, el) => el.attribs['href']).get();
+    ctx.info(`Unable to find <link> to feed, checking hyperlinks. Found ${hrefs.length} URLs.`);
+    for (const href of hrefs) {
+        if (!/^https?:.+\/.+\brss\b/.test(href)) {
+            continue;
+        }
+        const res = getResponse(ctx.fetch(href));
+        const result = testRSSContent(ctx, res);
+        if (result === undefined) {
+            ctx.info(`Found URL in link: ${href}; Processing.`);
+            return addRSSFeed(ctx, settings, href, res.content);
+        }
+        ctx.info(`Found URL in link: ${href}; ${result || 'Unable to resolve.'}`);
+    }
+    return 'Unable to find feed. Please check the URL and see the Logs for more information.';
+}
+function getResponse(res) {
+    var _a;
+    const headers = res.getHeaders();
+    return {
+        code: res.getResponseCode().toString(),
+        headers: headers,
+        contentType: (_a = headers['Content-Type']) !== null && _a !== void 0 ? _a : '',
+        content: res.getContentText(),
+    };
+}
+/**
+ * testRSSContent - returns undefined if no issue, string if error, and empty
+ * string if unspecified error.
+ */
+function testRSSContent(ctx, res) {
+    if (!res.code.startsWith('2')) {
+        return `URL returned Status Code ${res.code}`;
+    }
+    if (res.contentType.includes('rss+xml')) {
+        ctx.info('Header indicates RSS: adding.');
+        return;
+    }
+    else if (rssDocPtn.test(res.content)) {
+        ctx.info('Content indicates RSS: adding.');
+        return;
+    }
+    return "";
+}
+function addRSSFeed(ctx, settings, url, content) {
+    var _a, _b;
+    let xmlFeed;
+    try {
+        xmlFeed = parseXML(content);
+    }
+    catch (e) {
+        if (e instanceof Error) {
+            return e.message;
+        }
+        return String(e);
+    }
+    const ws = settings.worksheet;
+    updateFeedRow(ws, settings.feedHeaders, ws.getLastRow() + 1, [
+        [HEADERS.feed, url],
+        [HEADERS.discord, `[${xmlFeed.title}](${xmlFeed.link})`],
+        [HEADERS.time, ctx.now],
+        [HEADERS.guid, (_b = (_a = xmlFeed.items[0]) === null || _a === void 0 ? void 0 : _a.guid) !== null && _b !== void 0 ? _b : '0'],
+    ]);
+    return;
+}
+
 /**
  * index.js - main entry point for code
  */
@@ -1241,9 +1362,8 @@ function wrapper(method, ctx, func) {
         ctx.logger = (logs) => writeLogs(spreadsheet, logs, (log) => ctx.error(log));
         // apply safety tolerance (90%);
         ctx.limits = Object.fromEntries(Object.entries(ctx.limits).map(([k, v]) => [k, Math.floor(v * CONFIG.LIMIT_SAFETY_MARGIN)]));
-        if (method) {
+        if (method && !ctx.isTest) {
             ctx.info(`--- START ${method} (${version}) ---`);
-            console.log(`starting: ${method} ${spreadsheet.getId()} (${version})`);
         }
         return func(ctx);
     }
@@ -1263,6 +1383,14 @@ function execute(ctx) {
     var _a, _b, _c, _d;
     const feeds = readFeedsTabs(ctx);
     ctx.info(`Found ${feeds.length} RSS feeds`);
+    if (!ctx.isTest) {
+        const webhooks = ctx.getAllSheetSettings().map(s => { var _a; return (_a = getWebhookId(s.webhook.get())) !== null && _a !== void 0 ? _a : 0; });
+        console.log(JSON.stringify({ tele: {
+                ss: ctx.spreadsheet.getId(),
+                v: version,
+                wh: webhooks,
+            } }));
+    }
     const requests = [];
     for (const feed of feeds) {
         let result;
@@ -1427,6 +1555,23 @@ function alert(msg, buttonset) {
         btn = SpreadsheetApp.getUi().alert(msg);
     }
     return btn.toString();
+}
+function performRssFinder(url) {
+    wrapper('rssFinder', undefined, ctx => {
+        const sheet = SpreadsheetApp.getActiveSheet();
+        const settings = ctx.getSheetSettings(sheet);
+        if (!settings) {
+            alert('Worksheet settings not found.');
+            return;
+        }
+        const result = rssFinder(ctx, settings, url);
+        if (result) {
+            alert(result);
+        }
+        else {
+            alert('Feed added successfully.');
+        }
+    });
 }
 function deleteSettings(sheetId) {
     return wrapper('deleteSettings', undefined, ctx => {

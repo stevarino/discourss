@@ -125,16 +125,15 @@ export interface Result {
   status_text: string,
   guid?: string,
   embeds?: Embed[],
-  sheets_update?: [SHEET_HEADERS_FIELDS, string|number][],
 }
 
-export interface SHEET_HEADER_TYPES {
+export interface HEADER {
   label: string,
   help: string,
 }
 
 type SHEET_HEADERS_FIELDS = 'index'|'feed'|'discord'|'time'|'guid'|'status';
-export const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES> = { // : {[key in keyof Feed]: string} = {
+export const HEADERS: Record<SHEET_HEADERS_FIELDS, HEADER> = {
   index: {
     label: 'Index',
     help: '',
@@ -161,10 +160,10 @@ export const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES> = {
   },
 } as const;
 
-export const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(
+export const EXPECTED_HEADERS = Object.values(HEADERS).filter(
   v => v.help !== '').map(v => v.label) as string[];
 export const HEADER_LOOKUP = Object.fromEntries(
-  Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k])
+  Object.entries(HEADERS).map(([k, v]) => [v.label, k])
 ) as Record<string, SHEET_HEADERS_FIELDS>;
 
 /** Sheets Interfaces */
@@ -213,6 +212,7 @@ export type Worksheet = {
   autoResizeRows(startRow: number, numRows: number): void,
 } & MetadataContainer
 
+// https://developers.google.com/apps-script/reference/spreadsheet/range
 export interface Range {
   getValues(): CELL_VALUE[][],
   setValues(values: CELL_VALUE[][]): Range,
@@ -232,10 +232,12 @@ export interface StyleBuilder {
   build(): StyleBuilderFinal
 }
 
+// https://developers.google.com/apps-script/reference/xml-service/document
 export interface XmlDocument {
   getRootElement(): XmlElement | null;
 }
 
+// https://developers.google.com/apps-script/reference/xml-service/element
 export interface XmlElement {
   getChild(name: string): XmlElement | null;
   getChildren(name: string): XmlElement[];

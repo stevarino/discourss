@@ -1,7 +1,7 @@
 /**
  * sheets.js - functions related to processing the spreadsheet.
  */
-import { SHEET_HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, getWebhookId, renderLogHeader, } from './common.js';
+import { HEADERS, EXPECTED_HEADERS, HEADER_LOOKUP, renderLogHeader, } from './common.js';
 import { LOG_LEVEL, errorToString } from './context.js';
 export const LOGS_TAB = 'Logs';
 function newTextStyle() {
@@ -29,7 +29,7 @@ export function setupFeedsTab(worksheet) {
     for (const header of EXPECTED_HEADERS) {
         if (!values[0].includes(header)) {
             const index = values[0].length;
-            const { label, help } = SHEET_HEADERS[HEADER_LOOKUP[header]];
+            const { label, help } = HEADERS[HEADER_LOOKUP[header]];
             values[0][index] = label;
             values[1][index] = help;
             newData[0].push(label);
@@ -49,9 +49,9 @@ export function setupFeedsTab(worksheet) {
         worksheet.getRange(2, lastCol + 1, 1, newData[0].length).setTextStyle(newTextStyle().setFontSize(10).setBold(false).build());
         worksheet.autoResizeColumns(lastCol + 1, newData[0].length);
         const columnWidthMults = [
-            [SHEET_HEADERS.feed.label, 4],
-            [SHEET_HEADERS.discord.label, 2],
-            [SHEET_HEADERS.status.label, 8],
+            [HEADERS.feed.label, 4],
+            [HEADERS.discord.label, 2],
+            [HEADERS.status.label, 8],
         ];
         for (const [label, mult] of columnWidthMults) {
             const feedIndex = newData[0].indexOf(label) + 1;
@@ -113,6 +113,22 @@ export function writeLogs(sheet, logs, logger) {
 function getFeedColumn(feedHeaders, header) {
     return feedHeaders.indexOf(header);
 }
+function validateHeaders(values) {
+    const feedHeaders = [];
+    feedHeaders.push(...values);
+    const missing = EXPECTED_HEADERS.filter(h => !feedHeaders.includes(h));
+    if (missing.length !== 0) {
+        throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
+    }
+    return feedHeaders;
+}
+export function setHeaders(ctx, ws) {
+    const settings = ctx.getSheetSettings(ws);
+    if (!settings) {
+        throw new Error('Could not find worksheet settings.');
+    }
+    settings.feedHeaders = validateHeaders(ws.getDataRange().getValues()[0]);
+}
 export function readFeedsTabs(ctx) {
     const feeds = [];
     const webhooks = new Set();
@@ -123,18 +139,9 @@ export function readFeedsTabs(ctx) {
         const values = settings.worksheet.getDataRange().getValues();
         for (let i = 0; i < values.length; i++) {
             // setup columns for dict-like lookup.
-            if (values[i].includes(SHEET_HEADERS.feed.label)) {
+            if (values[i].includes(HEADERS.feed.label)) {
                 settings.feedHeaders.length = 0;
-                settings.feedHeaders.push(...values[i]);
-                const missing = [];
-                for (const v of EXPECTED_HEADERS) {
-                    if (!settings.feedHeaders.includes(v)) {
-                        missing.push(v);
-                    }
-                }
-                if (missing.length !== 0) {
-                    throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
-                }
+                settings.feedHeaders.push(...validateHeaders(values[i]));
                 continue;
             }
             const feed = { index: i, settings };
@@ -166,27 +173,28 @@ export function readFeedsTabs(ctx) {
             });
         }
     }
-    const webhookIds = Array.from(webhooks).map(s => { var _a; return (_a = getWebhookId(s)) !== null && _a !== void 0 ? _a : '?'; });
-    console.log(`webhookMap = ${JSON.stringify({ sheet: ctx.spreadsheet.getId(), webhookIds })}`);
     // earliest first
     feeds.sort((a, b) => a.time - b.time);
     return feeds;
 }
 export function updateFeedsTab(feed, column, value) {
-    var _a, _b;
-    const col = getFeedColumn(feed.settings.feedHeaders, column.label);
-    (_b = (_a = feed.settings.worksheet) === null || _a === void 0 ? void 0 : _a.getRange(feed.index + 1, col + 1, 1, 1)) === null || _b === void 0 ? void 0 : _b.setValues([[value]]);
+    const ws = feed.settings.worksheet;
+    const hdrs = feed.settings.feedHeaders;
+    updateFeedRow(ws, hdrs, feed.index + 1, [[column, value]]);
+}
+export function updateFeedRow(ws, headers, rowNo, update) {
+    const cols = update.map(([hdr]) => getFeedColumn(headers, hdr.label));
+    const colLast = Math.max(1, ...cols) + 1;
+    const range = ws.getRange(rowNo, 1, 1, colLast);
+    const values = range.getValues();
+    for (const [i, [_, val]] of update.entries()) {
+        if (val !== undefined) {
+            values[0][cols[i]] = val;
+        }
+    }
+    range.setValues(values);
 }
 export function setFeedStatus(feed, ctx, status, guid) {
-    const sheet = feed.settings.worksheet;
-    const timeCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.time.label);
-    const statusCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.status.label);
-    const guidCol = getFeedColumn(feed.settings.feedHeaders, SHEET_HEADERS.guid.label);
-    const maxCol = Math.max(timeCol, statusCol, guidCol);
-    const range = sheet.getRange(feed.index + 1, 1, 1, maxCol + 1);
-    if (!range) {
-        throw new Error(`${renderLogHeader(feed)} could not get feed range: [${feed.index + 1}][1:${maxCol + 1}]`);
-    }
     const msg = `${renderLogHeader(feed)} ${status}`;
     if (status.startsWith('ERROR')) {
         ctx.error(msg);
@@ -194,11 +202,9 @@ export function setFeedStatus(feed, ctx, status, guid) {
     else {
         ctx.info(msg);
     }
-    const data = range.getValues();
-    data[0][timeCol] = Math.floor(ctx.now);
-    data[0][statusCol] = status;
-    if (guid !== undefined) {
-        data[0][guidCol] = guid;
-    }
-    range.setValues(data);
+    updateFeedRow(feed.settings.worksheet, feed.settings.feedHeaders, feed.index + 1, [
+        [HEADERS.time, ctx.now],
+        [HEADERS.guid, guid],
+        [HEADERS.status, status],
+    ]);
 }

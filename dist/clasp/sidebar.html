@@ -121,7 +121,7 @@ var STATUS;
     STATUS[STATUS["ERROR"] = 3] = "ERROR";
     STATUS[STATUS["NONE"] = 4] = "NONE";
 })(STATUS || (STATUS = {}));
-const SHEET_HEADERS = {
+const HEADERS = {
     index: {
         label: 'Index',
         help: '',
@@ -147,8 +147,8 @@ const SHEET_HEADERS = {
         help: 'Last run status',
     },
 };
-Object.values(SHEET_HEADERS).filter(v => v.help !== '').map(v => v.label);
-Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k]));
+Object.values(HEADERS).filter(v => v.help !== '').map(v => v.label);
+Object.fromEntries(Object.entries(HEADERS).map(([k, v]) => [v.label, k]));
 
 /**
  * context.js - Context and Logging infrastructure.
@@ -199,6 +199,7 @@ const DISCOURSS_BACKEND = {
     deleteSettings: buildBackendCall('deleteSettings'),
     pollCurrentSheet: buildBackendCall('pollCurrentSheet'),
     alert: buildBackendCall('alert'),
+    performRssFinder: buildBackendCall('performRssFinder'),
 };
 const DISCOURSS_STATE = {
     sidebarData: undefined,

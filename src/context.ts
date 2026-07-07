@@ -236,6 +236,7 @@ export class Context {
   fetcher: Fetcher;
   logger: ((logs: LOG_RECORD[]) => void) | undefined;
   rateLimiter: Ratelimiter = new Ratelimiter();
+  isTest = false;
 
   // https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
   limits = {
@@ -265,7 +266,7 @@ export class Context {
 
   loadSettings(): void {
     for (const sheet of this.spreadsheet.getSheets()) {
-      this.sheetSettings[sheet.getSheetId()] = new SheetSettings(sheet);
+      this.sheetSettings[String(sheet.getSheetId())] = new SheetSettings(sheet);
     }
   }
 
@@ -282,7 +283,8 @@ export class Context {
     return settings;
   }
 
-  getSheetData(sheetId: string): SidebarSheetsData {
+  getSheetData(sheetId: string|number|Worksheet): SidebarSheetsData {
+    sheetId = getSheetId(sheetId);
     const record = this.sheetSettings[sheetId];
     if (!record) {
       throw new Error(`Sheet "${sheetId}" not found.`);
@@ -295,16 +297,24 @@ export class Context {
     }
   }
 
-  getWorksheet(sheetId: string): Worksheet | undefined {
-    return this.sheetSettings[sheetId]?.worksheet;
+  getWorksheet(sheetId: string|number|Worksheet): Worksheet | undefined {
+    return this.sheetSettings[getSheetId(sheetId)]?.worksheet;
   }
 
-  setSettings(sheetId: string, values: [string, CELL_VALUE][]): string[] {
-    return this.sheetSettings[sheetId]?.setSettings(values) ?? [`Unrecognized sheet: "${sheetId}"`]
+  getAllSheetSettings(): SheetSettings[] {
+    return Object.values(this.sheetSettings).filter(s => s.isSet);
   }
 
-  deleteSettings(sheetId: string): void {
-    this.sheetSettings[sheetId]?.deleteSettings();
+  getSheetSettings(sheetId: string|number|Worksheet): SheetSettings | undefined {
+    return this.sheetSettings[getSheetId(sheetId)];
+  }
+
+  setSettings(sheetId: string|number|Worksheet, values: [string, CELL_VALUE][]): string[] {
+    return this.sheetSettings[getSheetId(sheetId)]?.setSettings(values) ?? [`Unrecognized sheet: "${sheetId}"`]
+  }
+
+  deleteSettings(sheetId: string|number|Worksheet): void {
+    this.sheetSettings[getSheetId(sheetId)]?.deleteSettings();
   }
 
   reset(spreadsheet?: Spreadsheet): void {
@@ -345,4 +355,12 @@ export class Context {
   }
 }
 
+function getSheetId(sheetId: string|number|Worksheet) {
+  if (typeof sheetId === 'object') {
+    return String(sheetId.getSheetId());
+  } else if (typeof sheetId === 'number') {
+    return String(sheetId);
+  }
+  return sheetId;
+}
 

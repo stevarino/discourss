@@ -22,6 +22,7 @@ export declare function toggleTimer(): boolean | null;
 /** Timer execution. */
 export declare function discourssTimerTrigger(): void;
 export declare function alert(msg: string, buttonset?: ButtonSet): Button;
+export declare function performRssFinder(url: string): void;
 export declare function deleteSettings(sheetId: string): SidebarSaveResponse | null;
 export declare function pollCurrentSheet(): SidebarPollResponse;
 /** HTTP endpoint. Currently unsued. */

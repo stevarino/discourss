@@ -59,7 +59,7 @@ export var STATUS;
     STATUS[STATUS["NONE"] = 4] = "NONE";
 })(STATUS || (STATUS = {}));
 ;
-export const SHEET_HEADERS = {
+export const HEADERS = {
     index: {
         label: 'Index',
         help: '',
@@ -85,8 +85,8 @@ export const SHEET_HEADERS = {
         help: 'Last run status',
     },
 };
-export const EXPECTED_HEADERS = Object.values(SHEET_HEADERS).filter(v => v.help !== '').map(v => v.label);
-export const HEADER_LOOKUP = Object.fromEntries(Object.entries(SHEET_HEADERS).map(([k, v]) => [v.label, k]));
+export const EXPECTED_HEADERS = Object.values(HEADERS).filter(v => v.help !== '').map(v => v.label);
+export const HEADER_LOOKUP = Object.fromEntries(Object.entries(HEADERS).map(([k, v]) => [v.label, k]));
 /**
  * Fetcher code
  */
