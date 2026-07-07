@@ -36,7 +36,7 @@ export const CONFIG = {
     LOG_TO_STDERR: false,
     LOG_DEBUG: false,
     LIMIT_SAFETY_MARGIN: 0.9,
-    RUNTIME: 27,
+    RUNTIME: 345, // 6 minutes, 15 seconds of safety
 };
 export function renderFeedCounters(counters) {
     const output = [];
