@@ -82,14 +82,13 @@ export interface Result {
     status_text: string;
     guid?: string;
     embeds?: Embed[];
-    sheets_update?: [SHEET_HEADERS_FIELDS, string | number][];
 }
-export interface SHEET_HEADER_TYPES {
+export interface HEADER {
     label: string;
     help: string;
 }
 type SHEET_HEADERS_FIELDS = 'index' | 'feed' | 'discord' | 'time' | 'guid' | 'status';
-export declare const SHEET_HEADERS: Record<SHEET_HEADERS_FIELDS, SHEET_HEADER_TYPES>;
+export declare const HEADERS: Record<SHEET_HEADERS_FIELDS, HEADER>;
 export declare const EXPECTED_HEADERS: string[];
 export declare const HEADER_LOOKUP: Record<string, SHEET_HEADERS_FIELDS>;
 /** Sheets Interfaces */

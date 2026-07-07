@@ -1,10 +1,26 @@
 /**
  * rss.js - functions related to processing RSS feeds.
+ * 
+ * TODO(#6): Inspect to transparently handle both RSS and Atom feeds.
  */
 
-import { Result, STATUS, Feed, XmlDocument, Embed, SettingsInterface, XmlElement, renderLogHeader } from './common.js';
+import { Result, STATUS, Feed, XmlDocument, Embed, SettingsInterface, renderLogHeader } from './common.js';
 import { Context } from './context.js';
 import { nodeToMarkdown } from './markdown.js';
+
+export interface XMLFeed {
+  title?: string,
+  link?: string,
+  items: XMLFeedItem[],
+}
+
+export interface XMLFeedItem {
+  title: string,
+  link: string,
+  guid: string,
+  pubDate: Date,
+  description: string,
+};
 
 /**
  * Request an RSS feed and process it into a resulting set of embeds.
@@ -27,99 +43,101 @@ export function processFeed(feed: Feed, ctx: Context): Result {
   }
   const text = res.getContentText();
   ctx.debug(`Received ${text.length} bytes`);
-  return parseRssXml(text, feed, ctx);
+  return parseFeed(text, feed, ctx);
 }
 
 
-function parseRssXml(content: string, feed: Feed, ctx: Context): Result {
+function parseFeed(content: string, feed: Feed, ctx: Context): Result {
   const embeds: Embed[] = [];
+  const prevGuid = feed.guid ?? '';
 
-  const doc: XmlDocument = XmlService.parse(content.trim());
-  const root = doc.getRootElement();
-  if (!root) {
-    throw Error('Failed to parse feed');
-  }
+  const xmlFeed = parseXML(content);
 
-  const channel = root.getChild('channel');
-  if (!channel) {
-    throw Error('channel element not found')
-  }
-  let firstGuid = '';
   let foundLast = false;
-  let status = 'ok';
-  const items = channel.getChildren("item");
-  ctx.debug(`Loaded RSS: ${items.length} items`);
-  if (items.length === 0) {
-    firstGuid = '0';
-    status = 'no items';
-  }
-  for (const item of items) {
-    const guid = item.getChild('guid')?.getText();
-    // ctx.debug(`Found item: ${guid}`);
-    if (!guid) {
-      ctx.warn(`GUID not specified on feed item. Skipping.`)
-      continue;
-    }
-    if (!firstGuid) {
-      firstGuid = guid;
-    }
-    if (guid === feed.guid) {
+  for (const item of xmlFeed.items) {
+    if (item.guid === feed.guid) {
       foundLast = true;
       break;
     }
     try {
       embeds.push(buildEmbed(ctx, feed.settings, item));
     } catch (e) {
-      ctx.warn(`${renderLogHeader(feed)} [${guid}] Could not process embed: "${e}"`)
+      ctx.warn(`${renderLogHeader(feed)} "${item.guid}": Could not process embed: "${e}"`)
     }
   }
 
   // TODO: better separate this.
   // new (to us) feed. we only care about entries moving forward, not
   // entries we have already seen.
-  if(!foundLast && String(feed.guid) !== '0') {
-    status = 'new feed';
+  if(!foundLast && prevGuid !== '0') {
     embeds.length = 0;
-  } else {
-    status = `found ${embeds.length}`
   }
 
   // oldest first
   embeds.reverse();
-  ctx.debug(`Processed ${embeds.length} items`);
+  const status = `Processed ${embeds.length}`;
+  ctx.debug(`${renderLogHeader(feed)} ${status}`);
   const result = { 
     status: STATUS.OK,
     status_text: status,
-    guid: firstGuid,
+    guid: xmlFeed.items[0]?.guid ?? '0',
     embeds: embeds,
   };
   feed.result = result;
   return result;
 }
 
-export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElement): Embed {
-  const desc = xml.getChild('description');
-  if (!desc) {
-    throw new Error(`Missing description`);
+/** Parses XML Content and returns a normalized XMLFeed. */
+export function parseXML(content: string): XMLFeed {
+  const doc: XmlDocument = XmlService.parse(content);
+  const root = doc.getRootElement();
+  if (!root) {
+    throw Error('Failed to parse feed.');
   }
-  const html = Cheerio.load(desc.getValue());
+  const channel = root.getChild('channel');
+  if (!channel) {
+    throw Error('Channel element not found.')
+  }
+
+  const xmlFeed: XMLFeed = {
+    title: channel.getChild('title')?.getValue(),
+    link: channel.getChild('link')?.getValue(),
+    items: [],
+  };
+  
+  for (const item of channel.getChildren("item")) {
+    const missing = ['title', 'link', 'guid', 'pubDate', 'description'].filter(
+      field => !Boolean(item.getChild(field)));
+    if (missing.length) {
+      console.debug(`Missing items: [${missing.join(', ')}], skipping.`);
+      continue;
+    }
+    xmlFeed.items.push({
+      title: item.getChild('title')!.getText(),
+      link: item.getChild('link')!.getText(),
+      guid: item.getChild('guid')!.getText(),
+      pubDate: new Date(item.getChild('pubDate')!.getText()),
+      description: item.getChild('description')!.getValue()
+    })
+  }
+  return xmlFeed;
+}
+
+export function buildEmbed(ctx: Context, settings: SettingsInterface, item: XMLFeedItem): Embed {
+  const html = Cheerio.load(item.description);
   const embed: Embed = {
-    title: xml.getChild("title")?.getText(),
-    url: xml.getChild('link')?.getText(),
+    title: item.title,
+    url: item.link,
     description: nodeToMarkdown(html),
     fields: [],
   }
 
-  const pubDate = xml.getChild('pubDate')?.getValue();
-  if (pubDate) {
-    try {
-      const date = new Date(pubDate);
-      const epoch = Math.floor(date.getTime() / 1000);
-      embed._ts = epoch;
-      embed.timestamp = date.toISOString();
-    } catch (e) {
-      console.warn(`Failed to parse pubDate: "${pubDate}"`)
-    }
+  try {
+    const epoch = Math.floor(item.pubDate.getTime() / 1000);
+    embed._ts = epoch;
+    embed.timestamp = item.pubDate.toISOString();
+  } catch (e) {
+    ctx.debug(`Failed to parse pubDate: "${item.pubDate}"`)
   }
 
   const image = html('img').attr('src');
@@ -130,6 +148,6 @@ export function buildEmbed(_: Context, settings: SettingsInterface, xml: XmlElem
       embed.thumbnail = {url: image};
     }
   }
-  // ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
+  ctx.debug(`Created embed "${embed.title}" (${embed.url})`);
   return embed;
 }

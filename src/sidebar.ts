@@ -31,7 +31,7 @@ function safeError(msg: any) {
 // creates templated functions to call the backend utilizing a Promise
 // rather than functions. <T> is a tuple of arguments for the function
 // call and <U> is the return type.
-function buildBackendCall<T extends unknown[], U=unknown>(name: string) {
+function buildBackendCall<T extends unknown[], U=void>(name: string) {
   return (...args: T) => {
     return new Promise<U>((res, rej) => {
       const func = google.script.run.withSuccessHandler(res).withFailureHandler(rej)[name];
@@ -51,6 +51,7 @@ const DISCOURSS_BACKEND = {
   deleteSettings: buildBackendCall<[sheetId: string], SidebarSaveResponse>('deleteSettings'),
   pollCurrentSheet: buildBackendCall<[], SidebarPollResponse>('pollCurrentSheet'),
   alert: buildBackendCall<[msg: string, buttons?: ButtonSet], Button>('alert'),
+  performRssFinder: buildBackendCall<[url: string]>('performRssFinder'),
 }
 
 const DISCOURSS_STATE = {

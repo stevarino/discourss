@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { setupFeedsTab, writeLogs, readFeedsTabs, updateFeedsTab, LOGS_TAB } from './sheets.js';
-import { SHEET_HEADERS } from './common.js';
+import { HEADERS } from './common.js';
 import { LOG_LEVEL, LOG_RECORD } from './context.js';
 
 import { buildMocks } from './mocks.js';
@@ -83,7 +83,7 @@ describe('sheets.ts unit tests', () => {
     const feeds = readFeedsTabs(ctx);
     assert.strictEqual(feeds.length, 1);
 
-    updateFeedsTab(feeds[0], SHEET_HEADERS.guid, 'new-guid-value');
+    updateFeedsTab(feeds[0], HEADERS.guid, 'new-guid-value');
 
     // Verify that the cell (row 2, column index 4 for 'GUID') was updated
     const values = tab.getDataRange().getValues();

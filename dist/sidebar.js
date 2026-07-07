@@ -33,6 +33,7 @@ const DISCOURSS_BACKEND = {
     deleteSettings: buildBackendCall('deleteSettings'),
     pollCurrentSheet: buildBackendCall('pollCurrentSheet'),
     alert: buildBackendCall('alert'),
+    performRssFinder: buildBackendCall('performRssFinder'),
 };
 const DISCOURSS_STATE = {
     sidebarData: undefined,
