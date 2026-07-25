@@ -32,7 +32,7 @@ function parseFeed(content, feed, ctx) {
     var _a, _b, _c;
     const embeds = [];
     const prevGuid = (_a = feed.guid) !== null && _a !== void 0 ? _a : '';
-    const xmlFeed = parseXML(content);
+    const xmlFeed = parseXML(ctx, content);
     let foundLast = false;
     for (const item of xmlFeed.items) {
         if (item.guid === feed.guid) {
@@ -66,7 +66,7 @@ function parseFeed(content, feed, ctx) {
     return result;
 }
 /** Parses XML Content and returns a normalized XMLFeed. */
-export function parseXML(content) {
+export function parseXML(ctx, content) {
     var _a, _b;
     const doc = XmlService.parse(content);
     const root = doc.getRootElement();
@@ -85,7 +85,7 @@ export function parseXML(content) {
     for (const item of channel.getChildren("item")) {
         const missing = ['title', 'link', 'guid', 'pubDate', 'description'].filter(field => !Boolean(item.getChild(field)));
         if (missing.length) {
-            console.debug(`Missing items: [${missing.join(', ')}], skipping.`);
+            ctx.debug(`Missing items: [${missing.join(', ')}], skipping.`);
             continue;
         }
         xmlFeed.items.push({

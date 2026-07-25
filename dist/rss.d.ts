@@ -22,5 +22,5 @@ export interface XMLFeedItem {
  */
 export declare function processFeed(feed: Feed, ctx: Context): Result;
 /** Parses XML Content and returns a normalized XMLFeed. */
-export declare function parseXML(content: string): XMLFeed;
+export declare function parseXML(ctx: Context, content: string): XMLFeed;
 export declare function buildEmbed(ctx: Context, settings: SettingsInterface, item: XMLFeedItem): Embed;

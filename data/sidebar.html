@@ -12,14 +12,14 @@
     body {
       background-color: #fff;
     }
-    body > content {
+    /* body > content {
       display: none; 
       flex-direction: column;
-    }
-    body.loaded {
+    } */
+    /* body.loaded {
       > h1 { display: none; }
       > content { display: flex; }
-    }
+    } */
     h1, hr {
       font-size: 1.25em;
       font-family: "Rosarivo", cursive;
@@ -62,50 +62,96 @@
     input:hover, input:focus, select:hover, select:focus {
       box-shadow: 0.25em 0.25em #ff6600;
     }
+    section {
+      display: none;
+      margin-bottom: 2em;
+    }
+    section.webhook {
+      margin-bottom: 0;
+    }
+    #new {
+      section.actions, section.webhook, section.create, section.version {
+        display: block;
+      }
+    }
+    #edit { 
+      section.actions, section.webhook, section.edit, section.version,
+      section.rssFinder {
+        display: block;
+      }
+    }
+    #logs { section.actions, section.logs, section.version {
+      display: block;
+    } }
+    #loading section.loading,
+    #error section.error {
+      display: block;
+    }
   </style>
 </head>
-<body>
-<h1>Loading...</h1>
-<content>
+<body id="loading">
+<section class="loading">
+  <h1>Loading...</h1>
+</section>
+<section class="actions">
   <h1>Spreadsheet Actions</h1>
   <input type="button" value="Run" id="runBtn" />
   <input type="button" value="Timer" id="timerBtn" />
-  <h1><span id="sheetName"></span></h1>
-  <div id="settings">
-    <h2>webhook</h2>
-    <input type="text" name="webhook" />
-    <div>
-      <h2>appname</h2>
-      <input type="text" name="appname" />
-      <h2>avatar_url</h2>
-      <input type="text" name="avatar_url" />
-      <h2>signature</h2>
-      <input type="text" name="signature" />
-      <h2>feed_pattern</h2>
-      <input type="text" name="feed_pattern" />
-      <h2>feed_limit</h2>
-      <input type="number" name="feed_limit" />
-      <h2>feed_frequency</h2>
-      <input type="number" name="feed_frequency" />
-      <h2>image_format</h2>
-      <select name="image_format">
-        <option value="image">Image</option>
-        <option value="thumbnail">thumbnail</option>
-        <option value="none">None</option>
-      </select>
-      <h2>bundle</h2>
-      <select name="bundle" data-type="boolean">
-        <option value="true">True</option>
-        <option value="false" selected="selected">False</option>
-      </select>
-    </div>
-  </div>
-  <hr />
+</section>
+<section class="logs">
+  <h1>Viewing Logs</h1>
+  <p>The logs tab has the execution history and results for each run.</p>
+</section>
+<section class="rssFinder">
+  <h1>Add an RSS Feed</h1>
+  <h2>URL (RSS Feed or Webpage)</h2>
+  <input type="text" id="rssInput" />
+  <input type="button" value="Add URL" id="rssBtn" />
+</section>
+<section class="webhook">
+  <h1 id="sheetName"></h1>
+  <h2>webhook</h2>
+  <input type="text" name="webhook" />
+</section>
+<section class="create">
+  <input type="button" value="Setup" id="setupBtn" />
+</section>
+<section class="edit">
+  <h2>appname</h2>
+  <input type="text" name="appname" />
+  <h2>avatar_url</h2>
+  <input type="text" name="avatar_url" />
+  <h2>signature</h2>
+  <input type="text" name="signature" />
+  <h2>feed_pattern</h2>
+  <input type="text" name="feed_pattern" />
+  <h2>feed_limit</h2>
+  <input type="number" name="feed_limit" />
+  <h2>feed_frequency</h2>
+  <input type="number" name="feed_frequency" />
+  <h2>image_format</h2>
+  <select name="image_format">
+    <option value="image">Image</option>
+    <option value="thumbnail">thumbnail</option>
+    <option value="none">None</option>
+  </select>
+  <h2>bundle</h2>
+  <select name="bundle" data-type="boolean">
+    <option value="true">True</option>
+    <option value="false" selected="selected">False</option>
+  </select>
+  <hr>
   <input type="button" value="Save" id="saveBtn" />
   <input type="button" value="Delete Settings" id="deleteBtn" class="nonnew" />
+</section>
+<section class="error">
+  <h1>Failed to Load</h1>
+  <p>An error has occurred. Please reload the sidebar.</p>
+</section>
+
+<section class="version">
   <p>Version: <span id="version"></span></p>
-  <input type="button" value="Refresh Settings" id="refreshBtn" />
-</content>
+</section>
 
 <script>
 __SIDEBAR_SCRIPT__

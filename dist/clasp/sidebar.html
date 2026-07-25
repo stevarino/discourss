@@ -12,14 +12,14 @@
     body {
       background-color: #fff;
     }
-    body > content {
+    /* body > content {
       display: none; 
       flex-direction: column;
-    }
-    body.loaded {
+    } */
+    /* body.loaded {
       > h1 { display: none; }
       > content { display: flex; }
-    }
+    } */
     h1, hr {
       font-size: 1.25em;
       font-family: "Rosarivo", cursive;
@@ -62,50 +62,96 @@
     input:hover, input:focus, select:hover, select:focus {
       box-shadow: 0.25em 0.25em #ff6600;
     }
+    section {
+      display: none;
+      margin-bottom: 2em;
+    }
+    section.webhook {
+      margin-bottom: 0;
+    }
+    #new {
+      section.actions, section.webhook, section.create, section.version {
+        display: block;
+      }
+    }
+    #edit { 
+      section.actions, section.webhook, section.edit, section.version,
+      section.rssFinder {
+        display: block;
+      }
+    }
+    #logs { section.actions, section.logs, section.version {
+      display: block;
+    } }
+    #loading section.loading,
+    #error section.error {
+      display: block;
+    }
   </style>
 </head>
-<body>
-<h1>Loading...</h1>
-<content>
+<body id="loading">
+<section class="loading">
+  <h1>Loading...</h1>
+</section>
+<section class="actions">
   <h1>Spreadsheet Actions</h1>
   <input type="button" value="Run" id="runBtn" />
   <input type="button" value="Timer" id="timerBtn" />
-  <h1><span id="sheetName"></span></h1>
-  <div id="settings">
-    <h2>webhook</h2>
-    <input type="text" name="webhook" />
-    <div>
-      <h2>appname</h2>
-      <input type="text" name="appname" />
-      <h2>avatar_url</h2>
-      <input type="text" name="avatar_url" />
-      <h2>signature</h2>
-      <input type="text" name="signature" />
-      <h2>feed_pattern</h2>
-      <input type="text" name="feed_pattern" />
-      <h2>feed_limit</h2>
-      <input type="number" name="feed_limit" />
-      <h2>feed_frequency</h2>
-      <input type="number" name="feed_frequency" />
-      <h2>image_format</h2>
-      <select name="image_format">
-        <option value="image">Image</option>
-        <option value="thumbnail">thumbnail</option>
-        <option value="none">None</option>
-      </select>
-      <h2>bundle</h2>
-      <select name="bundle" data-type="boolean">
-        <option value="true">True</option>
-        <option value="false" selected="selected">False</option>
-      </select>
-    </div>
-  </div>
-  <hr />
+</section>
+<section class="logs">
+  <h1>Viewing Logs</h1>
+  <p>The logs tab has the execution history and results for each run.</p>
+</section>
+<section class="rssFinder">
+  <h1>Add an RSS Feed</h1>
+  <h2>URL (RSS Feed or Webpage)</h2>
+  <input type="text" id="rssInput" />
+  <input type="button" value="Add URL" id="rssBtn" />
+</section>
+<section class="webhook">
+  <h1 id="sheetName"></h1>
+  <h2>webhook</h2>
+  <input type="text" name="webhook" />
+</section>
+<section class="create">
+  <input type="button" value="Setup" id="setupBtn" />
+</section>
+<section class="edit">
+  <h2>appname</h2>
+  <input type="text" name="appname" />
+  <h2>avatar_url</h2>
+  <input type="text" name="avatar_url" />
+  <h2>signature</h2>
+  <input type="text" name="signature" />
+  <h2>feed_pattern</h2>
+  <input type="text" name="feed_pattern" />
+  <h2>feed_limit</h2>
+  <input type="number" name="feed_limit" />
+  <h2>feed_frequency</h2>
+  <input type="number" name="feed_frequency" />
+  <h2>image_format</h2>
+  <select name="image_format">
+    <option value="image">Image</option>
+    <option value="thumbnail">thumbnail</option>
+    <option value="none">None</option>
+  </select>
+  <h2>bundle</h2>
+  <select name="bundle" data-type="boolean">
+    <option value="true">True</option>
+    <option value="false" selected="selected">False</option>
+  </select>
+  <hr>
   <input type="button" value="Save" id="saveBtn" />
   <input type="button" value="Delete Settings" id="deleteBtn" class="nonnew" />
+</section>
+<section class="error">
+  <h1>Failed to Load</h1>
+  <p>An error has occurred. Please reload the sidebar.</p>
+</section>
+
+<section class="version">
   <p>Version: <span id="version"></span></p>
-  <input type="button" value="Refresh Settings" id="refreshBtn" />
-</content>
+</section>
 
 <script>
 /**
@@ -205,16 +251,12 @@ const DISCOURSS_STATE = {
     sidebarData: undefined,
 };
 function swapButton(btn, value) {
-    if (value) {
+    if (btn.dataset['value'] === undefined) {
         btn.dataset['value'] = btn.value;
-        btn.value = value;
     }
-    else {
-        value = btn.dataset['value'];
-        if (value) {
-            delete btn.dataset['value'];
-            btn.value = value;
-        }
+    value = value !== null && value !== void 0 ? value : btn.dataset['value'];
+    if (value !== undefined) {
+        btn.value = value;
     }
 }
 function getById(id) {
@@ -228,25 +270,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     function log(...args) {
         console.info(DEFAULT_APP_NAME, ...args);
     }
-    const settings = getById('settings');
     const sheetNameLabel = getById('sheetName');
     const versionLabel = getById('version');
     const runBtn = getById('runBtn');
     const timerBtn = getById('timerBtn');
     const saveBtn = getById('saveBtn');
+    const setupBtn = getById('setupBtn');
     const deleteBtn = getById('deleteBtn');
-    const refreshBtn = getById('refreshBtn');
-    function renderSheetName(sheet) {
-        if (sheet.name == LOGS_TAB) {
-            sheetNameLabel.innerText = 'Viewing Logs';
-        }
-        else if (sheet.isSet) {
-            sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
-        }
-        else {
-            sheetNameLabel.innerText = `Setup ${sheet.name}`;
-        }
-    }
+    const rssBtn = getById('rssBtn');
+    const rssInput = getById('rssInput');
     function timerButton(state) {
         timerBtn.value = state ? 'Disable Timer' : 'Enable Timer';
     }
@@ -266,48 +298,34 @@ document.addEventListener("DOMContentLoaded", async () => {
             var _a;
             let sidebarData = DISCOURSS_STATE.sidebarData;
             let sheet = sidebarData.sheets[sidebarData.sheetId];
-            // new spreadsheet?
+            // new spreadsheet? missing sidebar data for it
             if (sheet === undefined) {
-                document.body.classList.remove('loaded');
+                document.body.id = 'loading';
                 let sidebarData = await DISCOURSS_BACKEND.getSidebarData();
                 if (!sidebarData) {
-                    document.body.classList.add('loaded');
+                    document.body.id = 'error';
                     return;
                 }
                 DISCOURSS_STATE.sidebarData = sidebarData;
                 sheet = sidebarData.sheets[sidebarData.sheetId];
             }
-            renderSheetName(sheet);
             if (sheet.name === LOGS_TAB) {
                 // Logs is read-only
-                settings.style.display = 'none';
-                saveBtn.style.display = 'none';
-                deleteBtn.style.display = 'none';
+                document.body.id = 'logs';
             }
             else {
-                settings.style.display = 'flex';
-                saveBtn.style.display = 'block';
-                deleteBtn.style.display = 'block';
+                for (const [k, v] of (_a = sheet === null || sheet === void 0 ? void 0 : sheet.settings) !== null && _a !== void 0 ? _a : []) {
+                    document.querySelectorAll(`[name="${k}"]`).forEach(el => el.value = String(v));
+                }
                 if (sheet.isSet) {
-                    // editing a sheet record
-                    saveBtn.value = 'Save';
-                    deleteBtn.style.display = 'block';
-                    settings.querySelector('div').style.display = 'flex';
+                    document.body.id = 'edit';
+                    sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
                 }
                 else {
-                    // creating a sheet record
-                    saveBtn.value = 'Create';
-                    deleteBtn.style.display = 'none';
-                    settings.querySelector('div').style.display = 'none';
-                }
-                for (const [k, v] of (_a = sheet === null || sheet === void 0 ? void 0 : sheet.settings) !== null && _a !== void 0 ? _a : []) {
-                    const els = Array.from(document.getElementsByName(k));
-                    for (const el of els) {
-                        el.value = String(v);
-                    }
+                    document.body.id = 'new';
+                    sheetNameLabel.innerText = `Setup ${sheet.name}`;
                 }
             }
-            document.body.classList.add('loaded');
         }
         versionLabel.innerText = sidebarData.version;
         timerButton(sidebarData.timer);
@@ -339,21 +357,28 @@ document.addEventListener("DOMContentLoaded", async () => {
                 await renderSidebar();
             }
         });
-        async function refreshData() {
-            const sidebarData = await DISCOURSS_BACKEND.getSidebarData();
-            if (sidebarData) {
-                DISCOURSS_STATE.sidebarData = sidebarData;
+        rssBtn.addEventListener('click', async () => {
+            console.log('click');
+            swapButton(rssBtn, 'Adding...');
+            const value = rssInput.value;
+            console.log({ url: value });
+            const result = await DISCOURSS_BACKEND.performRssFinder(value);
+            console.log({ result });
+            if (result) {
+                rssInput.value = '';
             }
-            swapButton(refreshBtn);
-            await renderSidebar();
-        }
-        refreshBtn.addEventListener('click', () => {
-            swapButton(refreshBtn, 'Refreshing...');
-            refreshData();
+            console.log('done');
+            swapButton(saveBtn);
         });
         saveBtn.addEventListener('click', async () => {
+            await save(saveBtn);
+        });
+        setupBtn.addEventListener('click', async () => {
+            await save(setupBtn);
+        });
+        async function save(btn) {
             var _a, _b;
-            swapButton(saveBtn, 'Saving...');
+            swapButton(btn, 'Saving...');
             const sidebarData = DISCOURSS_STATE.sidebarData;
             const fields = [];
             const fieldElements = Array.from(document.querySelectorAll('*[name]'));
@@ -374,7 +399,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 fields: fields,
             };
             const res = await DISCOURSS_BACKEND.setSettings(saveRequest);
-            swapButton(saveBtn);
+            swapButton(btn);
             if (!res) {
                 DISCOURSS_BACKEND.alert('Failed to save. Please try again.');
                 return;
@@ -387,7 +412,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (sheetId === ((_b = DISCOURSS_STATE.sidebarData) === null || _b === void 0 ? void 0 : _b.sheetId)) {
                 await renderSidebar();
             }
-        });
+        }
         async function refresh() {
             var _a, _b;
             try {
@@ -400,7 +425,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     if (sheet && sheet.name != sheetName) {
                         sheet.name = sheetName;
                         if (sheet.sheetId === ((_b = DISCOURSS_STATE.sidebarData) === null || _b === void 0 ? void 0 : _b.sheetId)) {
-                            renderSheetName(sheet);
+                            sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
                         }
                     }
                 }
@@ -424,6 +449,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         failureHandler(e);
     }
 });
+
+
 
 </script>
   

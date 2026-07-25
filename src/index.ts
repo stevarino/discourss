@@ -251,20 +251,22 @@ export function alert(msg: string, buttonset?: ButtonSet): Button {
   return btn.toString() as Button;
 }
 
-export function performRssFinder(url: string): void {
-  wrapper('rssFinder', undefined, ctx => {
+export function performRssFinder(url: string): boolean|null {
+  return wrapper<boolean>('rssFinder', undefined, ctx => {
+    console.log('getting: ', url);
     const sheet = SpreadsheetApp.getActiveSheet();
     const settings = ctx.getSheetSettings(sheet);
     if (!settings) {
       alert('Worksheet settings not found.')
-      return;
+      return false;
     }
     const result = rssFinder(ctx, settings, url);
     if (result) {
       alert(result);
-    } else {
-      alert('Feed added successfully.');
+      return false;
     }
+    alert('Feed added successfully.');
+    return true;
   })
 }
 

@@ -51,7 +51,7 @@ function parseFeed(content: string, feed: Feed, ctx: Context): Result {
   const embeds: Embed[] = [];
   const prevGuid = feed.guid ?? '';
 
-  const xmlFeed = parseXML(content);
+  const xmlFeed = parseXML(ctx, content);
 
   let foundLast = false;
   for (const item of xmlFeed.items) {
@@ -88,7 +88,7 @@ function parseFeed(content: string, feed: Feed, ctx: Context): Result {
 }
 
 /** Parses XML Content and returns a normalized XMLFeed. */
-export function parseXML(content: string): XMLFeed {
+export function parseXML(ctx: Context, content: string): XMLFeed {
   const doc: XmlDocument = XmlService.parse(content);
   const root = doc.getRootElement();
   if (!root) {
@@ -109,7 +109,7 @@ export function parseXML(content: string): XMLFeed {
     const missing = ['title', 'link', 'guid', 'pubDate', 'description'].filter(
       field => !Boolean(item.getChild(field)));
     if (missing.length) {
-      console.debug(`Missing items: [${missing.join(', ')}], skipping.`);
+      ctx.debug(`Missing items: [${missing.join(', ')}], skipping.`);
       continue;
     }
     xmlFeed.items.push({

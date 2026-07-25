@@ -26,11 +26,7 @@
  */
 
 
-<<<<<<< HEAD
-const version = '1-785-016-451-667';
-=======
-const version = '1-783-461-439-021';
->>>>>>> f0d9834 (Add RSS Finder logic and tests)
+const version = '1-785-018-246-787';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -1004,7 +1000,7 @@ function parseFeed(content, feed, ctx) {
     var _a, _b, _c;
     const embeds = [];
     const prevGuid = (_a = feed.guid) !== null && _a !== void 0 ? _a : '';
-    const xmlFeed = parseXML(content);
+    const xmlFeed = parseXML(ctx, content);
     let foundLast = false;
     for (const item of xmlFeed.items) {
         if (item.guid === feed.guid) {
@@ -1038,7 +1034,7 @@ function parseFeed(content, feed, ctx) {
     return result;
 }
 /** Parses XML Content and returns a normalized XMLFeed. */
-function parseXML(content) {
+function parseXML(ctx, content) {
     var _a, _b;
     const doc = XmlService.parse(content);
     const root = doc.getRootElement();
@@ -1057,7 +1053,7 @@ function parseXML(content) {
     for (const item of channel.getChildren("item")) {
         const missing = ['title', 'link', 'guid', 'pubDate', 'description'].filter(field => !Boolean(item.getChild(field)));
         if (missing.length) {
-            console.debug(`Missing items: [${missing.join(', ')}], skipping.`);
+            ctx.debug(`Missing items: [${missing.join(', ')}], skipping.`);
             continue;
         }
         xmlFeed.items.push({
@@ -1332,7 +1328,7 @@ function addRSSFeed(ctx, settings, url, content) {
     var _a, _b;
     let xmlFeed;
     try {
-        xmlFeed = parseXML(content);
+        xmlFeed = parseXML(ctx, content);
     }
     catch (e) {
         if (e instanceof Error) {
@@ -1561,20 +1557,21 @@ function alert(msg, buttonset) {
     return btn.toString();
 }
 function performRssFinder(url) {
-    wrapper('rssFinder', undefined, ctx => {
+    return wrapper('rssFinder', undefined, ctx => {
+        console.log('getting: ', url);
         const sheet = SpreadsheetApp.getActiveSheet();
         const settings = ctx.getSheetSettings(sheet);
         if (!settings) {
             alert('Worksheet settings not found.');
-            return;
+            return false;
         }
         const result = rssFinder(ctx, settings, url);
         if (result) {
             alert(result);
+            return false;
         }
-        else {
-            alert('Feed added successfully.');
-        }
+        alert('Feed added successfully.');
+        return true;
     });
 }
 function deleteSettings(sheetId) {

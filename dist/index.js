@@ -216,20 +216,21 @@ export function alert(msg, buttonset) {
     return btn.toString();
 }
 export function performRssFinder(url) {
-    wrapper('rssFinder', undefined, ctx => {
+    return wrapper('rssFinder', undefined, ctx => {
+        console.log('getting: ', url);
         const sheet = SpreadsheetApp.getActiveSheet();
         const settings = ctx.getSheetSettings(sheet);
         if (!settings) {
             alert('Worksheet settings not found.');
-            return;
+            return false;
         }
         const result = rssFinder(ctx, settings, url);
         if (result) {
             alert(result);
+            return false;
         }
-        else {
-            alert('Feed added successfully.');
-        }
+        alert('Feed added successfully.');
+        return true;
     });
 }
 export function deleteSettings(sheetId) {

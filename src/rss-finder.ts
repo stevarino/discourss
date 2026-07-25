@@ -104,7 +104,7 @@ function addRSSFeed(
 ): string|undefined {
   let xmlFeed: XMLFeed;
   try {
-    xmlFeed = parseXML(content);
+    xmlFeed = parseXML(ctx, content);
   } catch (e) {
     if (e instanceof Error) {
       return e.message;

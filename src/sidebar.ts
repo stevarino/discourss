@@ -1,6 +1,9 @@
 /** sidebar.js - this is compiled into sidebar.html during the build step */
 
-import { Button, ButtonSet, CELL_VALUE, DEFAULT_APP_NAME, SidebarData, SidebarPollResponse, SidebarSaveRequest, SidebarSaveResponse, SidebarSheetsData as SidebarSheetData } from "./common.js";
+import { 
+  Button, ButtonSet, CELL_VALUE, DEFAULT_APP_NAME, SidebarData,
+  SidebarPollResponse, SidebarSaveRequest, SidebarSaveResponse
+} from "./common.js";
 import { LOGS_TAB } from "./sheets.js";
 
 type GoogleScriptRun = {
@@ -13,7 +16,6 @@ type Fields = HTMLInputElement | HTMLSelectElement;
 declare global {
   const google: {script: {run: GoogleScriptRun}}
 }
-
 
 function unexpectedError(msg: any) {
   safeError(`An unexpected error occured:\n${msg}`);
@@ -31,8 +33,8 @@ function safeError(msg: any) {
 // creates templated functions to call the backend utilizing a Promise
 // rather than functions. <T> is a tuple of arguments for the function
 // call and <U> is the return type.
-function buildBackendCall<T extends unknown[], U=void>(name: string) {
-  return (...args: T) => {
+function buildBackendCall<T extends any[]=[], U=void>(name: string): (...args: T) => Promise<U|null> {
+  return (...args: T): Promise<U|null> => {
     return new Promise<U>((res, rej) => {
       const func = google.script.run.withSuccessHandler(res).withFailureHandler(rej)[name];
       if (!func) {
@@ -43,7 +45,16 @@ function buildBackendCall<T extends unknown[], U=void>(name: string) {
   }
 }
 
-const DISCOURSS_BACKEND = {
+export const DISCOURSS_BACKEND: {
+  readonly run: (...args: any[]) => Promise<void | null>;
+  readonly toggleTimer: () => Promise<boolean | null>;
+  readonly getSidebarData: () => Promise<SidebarData | null>;
+  readonly setSettings: (req: SidebarSaveRequest) => Promise<SidebarSaveResponse | null>;
+  readonly deleteSettings: (sheetId: string) => Promise<SidebarSaveResponse | null>;
+  readonly pollCurrentSheet: () => Promise<SidebarPollResponse | null>;
+  readonly alert: (msg: string, buttons?: ButtonSet | undefined) => Promise<Button | null>;
+  readonly performRssFinder: (url: string) => Promise<boolean | null>; 
+} = {
   run: buildBackendCall('run'),
   toggleTimer: buildBackendCall<[], boolean>('toggleTimer'),
   getSidebarData: buildBackendCall<[], SidebarData>('getSidebarData'),
@@ -51,23 +62,20 @@ const DISCOURSS_BACKEND = {
   deleteSettings: buildBackendCall<[sheetId: string], SidebarSaveResponse>('deleteSettings'),
   pollCurrentSheet: buildBackendCall<[], SidebarPollResponse>('pollCurrentSheet'),
   alert: buildBackendCall<[msg: string, buttons?: ButtonSet], Button>('alert'),
-  performRssFinder: buildBackendCall<[url: string]>('performRssFinder'),
-}
+  performRssFinder: buildBackendCall<[url: string], boolean>('performRssFinder'),
+} as const;
 
 const DISCOURSS_STATE = {
   sidebarData: undefined as SidebarData | undefined,
 };
 
 function swapButton(btn: HTMLInputElement, value?: string) {
-  if (value) {
+  if (btn.dataset['value'] === undefined) {
     btn.dataset['value'] = btn.value;
+  }
+  value = value ?? btn.dataset['value'];
+  if (value !== undefined) {
     btn.value = value;
-  } else {
-    value = btn.dataset['value'];
-    if (value) {
-      delete btn.dataset['value'];
-      btn.value = value;
-    }
   }
 }
 
@@ -83,25 +91,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   function log(...args: any) {
     console.info(DEFAULT_APP_NAME, ...args);
   }
-  const settings = getById('settings')!;
   const sheetNameLabel = getById('sheetName');
   const versionLabel = getById('version');
   const runBtn = getById<HTMLInputElement>('runBtn');
   const timerBtn  = getById<HTMLInputElement>('timerBtn');
   const saveBtn = getById<HTMLInputElement>('saveBtn');
+  const setupBtn = getById<HTMLInputElement>('setupBtn');
   const deleteBtn = getById<HTMLInputElement>('deleteBtn');
-  const refreshBtn = getById<HTMLInputElement>('refreshBtn');
-
-  function renderSheetName(sheet: SidebarSheetData) {
-    if (sheet.name == LOGS_TAB) {
-      sheetNameLabel.innerText = 'Viewing Logs';
-    } else if (sheet.isSet) {
-      sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
-    } else {
-      sheetNameLabel.innerText = `Setup ${sheet.name}`;
-    }     
-  }
-
+  const rssBtn = getById<HTMLInputElement>('rssBtn');
+  const rssInput = getById<HTMLInputElement>('rssInput');
 
   function timerButton(state: boolean) {
     timerBtn.value = state ? 'Disable Timer' : 'Enable Timer';
@@ -124,46 +122,34 @@ document.addEventListener("DOMContentLoaded", async () => {
     async function renderSidebar() {
       let sidebarData = DISCOURSS_STATE.sidebarData!;
       let sheet = sidebarData.sheets[sidebarData.sheetId];
-      // new spreadsheet?
+      // new spreadsheet? missing sidebar data for it
       if (sheet === undefined) {
-        document.body.classList.remove('loaded');
+        document.body.id = 'loading';
         let sidebarData = await DISCOURSS_BACKEND.getSidebarData();
         if (!sidebarData) {
-          document.body.classList.add('loaded');
+          document.body.id = 'error';
           return;
         }
         DISCOURSS_STATE.sidebarData = sidebarData;
         sheet = sidebarData.sheets[sidebarData.sheetId];
       }
-      renderSheetName(sheet);
       if (sheet.name === LOGS_TAB) {
         // Logs is read-only
-        settings.style.display = 'none';
-        saveBtn.style.display = 'none';
-        deleteBtn.style.display = 'none';
+        document.body.id = 'logs';
       } else {
-        settings.style.display = 'flex';
-        saveBtn.style.display = 'block';
-        deleteBtn.style.display = 'block';
-        if (sheet.isSet) {
-          // editing a sheet record
-          saveBtn.value = 'Save'
-          deleteBtn.style.display = 'block';
-          settings.querySelector('div')!.style.display = 'flex'
-        } else {
-          // creating a sheet record
-          saveBtn.value = 'Create';
-          deleteBtn.style.display = 'none';
-          settings.querySelector('div')!.style.display = 'none'
-        }
         for (const [k, v] of sheet?.settings ?? []) {
-          const els = Array.from(document.getElementsByName(k)) as Fields[];
-          for (const el of els) {
-            el.value = String(v);
-          }
+          document.querySelectorAll(`[name="${k}"]`).forEach(
+            el => (el as HTMLInputElement | HTMLSelectElement).value = String(v)
+          );
+        }
+        if (sheet.isSet) {
+          document.body.id = 'edit';
+          sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
+        } else {
+          document.body.id = 'new';
+          sheetNameLabel.innerText = `Setup ${sheet.name}`;
         }
       }
-      document.body.classList.add('loaded');
     }
 
     versionLabel.innerText = sidebarData.version;
@@ -197,22 +183,31 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
 
-    async function refreshData() {
-      const sidebarData = await DISCOURSS_BACKEND.getSidebarData();
-      if (sidebarData) {
-        DISCOURSS_STATE.sidebarData = sidebarData
+    rssBtn.addEventListener('click', async () => {
+      console.log('click');
+      swapButton(rssBtn, 'Adding...');
+      const value = rssInput.value;
+      console.log({url: value});
+      const result = await DISCOURSS_BACKEND.performRssFinder(value);
+      console.log({result})
+      if (result) {
+        rssInput.value = '';
       }
-      swapButton(refreshBtn);
-      await renderSidebar();
-    }
-
-    refreshBtn.addEventListener('click', () => {
-      swapButton(refreshBtn, 'Refreshing...');
-      refreshData();
+      console.log('done');
+      swapButton(saveBtn);
     });
 
     saveBtn.addEventListener('click', async () => {
-      swapButton(saveBtn, 'Saving...');
+      await save(saveBtn);
+    });
+    
+    setupBtn.addEventListener('click', async () => {
+      await save(setupBtn);
+    });
+
+    async function save(btn: HTMLInputElement) {
+      swapButton(btn, 'Saving...');
+
       const sidebarData = DISCOURSS_STATE.sidebarData!;
       
       const fields: [string, CELL_VALUE][] = [];
@@ -236,7 +231,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       const res = await DISCOURSS_BACKEND.setSettings(saveRequest);
-      swapButton(saveBtn);
+      swapButton(btn);
       if (!res) {
         DISCOURSS_BACKEND.alert('Failed to save. Please try again.');
         return;
@@ -249,7 +244,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (sheetId === DISCOURSS_STATE.sidebarData?.sheetId) {
         await renderSidebar();
       }
-    });
+    }
 
     async function refresh() {
       try {
@@ -261,7 +256,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           if (sheet && sheet.name != sheetName) {
             sheet.name = sheetName;
             if (sheet.sheetId === DISCOURSS_STATE.sidebarData?.sheetId) {
-              renderSheetName(sheet);
+              sheetNameLabel.innerText = `Worksheet ${sheet.name}`;
             }
           }
         }

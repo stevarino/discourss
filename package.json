@@ -19,7 +19,7 @@
     "watch": "npx clasp logs --watch",
     "watch-prod": "npx clasp -P clasp.prod.json logs --watch",
     "build": "tsc && npx eslint . && node dist/build.js -- --build",
-    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js dist/markdown.test.js dist/discord.test.js dist/rss-finder.test.js"
+    "test": "tsc && node --test dist/rss.test.js dist/sheets.test.js dist/index.test.js dist/markdown.test.js dist/discord.test.js dist/rss-finder.test.js dist/sidebar.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -31,6 +31,7 @@
     "eslint": "^10.5.0",
     "marked": "^18.0.5",
     "rollup": "^4.62.0",
+    "ts-morph": "^28.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1"
   }

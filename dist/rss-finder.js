@@ -89,7 +89,7 @@ function addRSSFeed(ctx, settings, url, content) {
     var _a, _b;
     let xmlFeed;
     try {
-        xmlFeed = parseXML(content);
+        xmlFeed = parseXML(ctx, content);
     }
     catch (e) {
         if (e instanceof Error) {
