@@ -21,7 +21,7 @@ To protect your infrastructure and data feeds, the following information is proc
 
  - Discord Webhook Keys/Tokens: We do not collect or store the secret authorization keys for your webhooks.
  - RSS Feed URLs: The addresses of the RSS feeds you monitor are not collected or logged by us.
- - Personal Information: We do not collect names, email addresses, billing details, or any other personally identifiable information (PII). All information posted within the Spreadsheet is kept private within the Spreadsheet.
+ - Personal Information: **We do not collect names, email addresses, billing details, or any other personally identifiable information (PII).** All personal information posted within the Spreadsheet is kept private within the Spreadsheet.
 
 ## 2. How We Use Your Information
 
