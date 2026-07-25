@@ -1,6 +1,6 @@
 # Privacy Policy for DiscouRSS
 
-**Last Updated**: July 6, 2026
+**Last Updated**: July 25, 2026 ([History](https://github.com/stevarino/discourss/commits/main/doc/md/privacy/index.md))
 
 One of DiscouRSS main priorities is the privacy of users. This Privacy Policy document outlines the types of information that are collected and recorded by DiscouRSS and how it is used.
 
