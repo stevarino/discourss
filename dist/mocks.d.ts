@@ -2,9 +2,17 @@
 import * as cheerio from 'cheerio';
 import { Spreadsheet, CELL_VALUE, Worksheet, XmlDocument, XmlElement, FetchRequest, FetchResponse, Fetcher, MetadataContainer } from './common.js';
 import { Context, SheetSettings } from './context.js';
+export * from './mock-data.js';
 export declare const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/123/test";
+interface MockBox {
+    ctx: Context;
+    ss: Spreadsheet;
+    ws: Worksheet;
+    settings: SheetSettings;
+}
 /** Returns a context with a mock spreadsheet and one mock worksheet */
 export declare function buildMocks(sheetName?: string): [Context, Spreadsheet, Worksheet, SheetSettings];
+export declare function buildMocksWithSheet(data?: CELL_VALUE[][]): MockBox;
 export declare class MockResponse implements FetchResponse {
     private responseCode;
     private contentText;
@@ -115,4 +123,3 @@ declare class MockMetadata {
     getKey(): string;
     getId(): number;
 }
-export {};

@@ -8,14 +8,25 @@ import {
 } from './common.js';
 import { Context, SheetSettings } from './context.js';
 import { MockRatelimiter } from './ratelimiter.js';
+import { setHeaders, setupFeedsTab } from './sheets.js';
+
+export * from './mock-data.js'
 
 export const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/123/test';
+
+interface MockBox {
+  ctx: Context,
+  ss: Spreadsheet,
+  ws: Worksheet,
+  settings: SheetSettings,
+}
 
 /** Returns a context with a mock spreadsheet and one mock worksheet */
 export function buildMocks(sheetName='Feeds'): [Context, Spreadsheet, Worksheet, SheetSettings] {
   const ss = new MockSpreadsheet();
   const ws = ss.insertSheet(sheetName)
   const ctx = new Context(ss);
+  ctx.isTest = true;
   ctx.now = 499280400;
   ctx.fetcher = new MockFetcher();
   ctx.rateLimiter = new MockRatelimiter(ctx.now);
@@ -23,6 +34,16 @@ export function buildMocks(sheetName='Feeds'): [Context, Spreadsheet, Worksheet,
   settings.isSet = true;
   settings.webhook.set(DISCORD_WEBHOOK)
   return [ctx, ss, ws, settings];
+}
+
+export function buildMocksWithSheet( data: CELL_VALUE[][] = []): MockBox {
+  const [ctx, ss, ws, settings] = buildMocks();
+  setupFeedsTab(ws);
+  setHeaders(ctx, ws);
+  if (data.length) {
+    ws.getRange(2, 1, 2 + data.length - 1, data[0].length).setValues(data);
+  }
+  return {ctx, ss, ws, settings}
 }
 
 export class MockResponse implements FetchResponse {
