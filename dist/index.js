@@ -3,7 +3,7 @@
  */
 import { renderLogHeader, STATUS, DEFAULT_APP_NAME, CONFIG, renderFeedCounters, getWebhookId } from './common.js';
 import { LOG_LEVEL, errorToString, log, Context } from './context.js';
-import { readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus } from './sheets.js';
+import { readFeedsTabs, writeLogs, setupFeedsTab, setFeedStatus, setHeaders } from './sheets.js';
 import { processFeed } from './rss.js';
 import { version } from './version.js';
 import { normalizeMessages } from './discord.js';
@@ -217,9 +217,9 @@ export function alert(msg, buttonset) {
 }
 export function performRssFinder(url) {
     return wrapper('rssFinder', undefined, ctx => {
-        console.log('getting: ', url);
         const sheet = SpreadsheetApp.getActiveSheet();
         const settings = ctx.getSheetSettings(sheet);
+        setHeaders(ctx, sheet);
         if (!settings) {
             alert('Worksheet settings not found.');
             return false;

@@ -111,7 +111,11 @@ export function writeLogs(sheet, logs, logger) {
     }
 }
 function getFeedColumn(feedHeaders, header) {
-    return feedHeaders.indexOf(header);
+    const i = feedHeaders.indexOf(header);
+    if (i === -1) {
+        throw new Error(`Failed to find header: "${header}" (${JSON.stringify(feedHeaders)})`);
+    }
+    return i;
 }
 function validateHeaders(values) {
     const feedHeaders = [];
@@ -127,7 +131,8 @@ export function setHeaders(ctx, ws) {
     if (!settings) {
         throw new Error('Could not find worksheet settings.');
     }
-    settings.feedHeaders = validateHeaders(ws.getDataRange().getValues()[0]);
+    const values = ws.getDataRange().getValues()[0];
+    settings.feedHeaders = validateHeaders(values);
 }
 export function readFeedsTabs(ctx) {
     const feeds = [];
@@ -192,6 +197,7 @@ export function updateFeedRow(ws, headers, rowNo, update) {
             values[0][cols[i]] = val;
         }
     }
+    console.log({ values });
     range.setValues(values);
 }
 export function setFeedStatus(feed, ctx, status, guid) {

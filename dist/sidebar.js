@@ -146,17 +146,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
         });
         rssBtn.addEventListener('click', async () => {
-            console.log('click');
             swapButton(rssBtn, 'Adding...');
             const value = rssInput.value;
-            console.log({ url: value });
             const result = await DISCOURSS_BACKEND.performRssFinder(value);
-            console.log({ result });
             if (result) {
                 rssInput.value = '';
             }
-            console.log('done');
-            swapButton(saveBtn);
+            swapButton(rssBtn);
         });
         saveBtn.addEventListener('click', async () => {
             await save(saveBtn);

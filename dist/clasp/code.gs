@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-785-018-246-787';
+const version = '1-785-035-547-355';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -644,7 +644,11 @@ function writeLogs(sheet, logs, logger) {
     }
 }
 function getFeedColumn(feedHeaders, header) {
-    return feedHeaders.indexOf(header);
+    const i = feedHeaders.indexOf(header);
+    if (i === -1) {
+        throw new Error(`Failed to find header: "${header}" (${JSON.stringify(feedHeaders)})`);
+    }
+    return i;
 }
 function validateHeaders(values) {
     const feedHeaders = [];
@@ -654,6 +658,14 @@ function validateHeaders(values) {
         throw new Error(`Missing required headers: ${JSON.stringify(missing)}`);
     }
     return feedHeaders;
+}
+function setHeaders(ctx, ws) {
+    const settings = ctx.getSheetSettings(ws);
+    if (!settings) {
+        throw new Error('Could not find worksheet settings.');
+    }
+    const values = ws.getDataRange().getValues()[0];
+    settings.feedHeaders = validateHeaders(values);
 }
 function readFeedsTabs(ctx) {
     const feeds = [];
@@ -713,6 +725,7 @@ function updateFeedRow(ws, headers, rowNo, update) {
             values[0][cols[i]] = val;
         }
     }
+    console.log({ values });
     range.setValues(values);
 }
 function setFeedStatus(feed, ctx, status, guid) {
@@ -1264,7 +1277,7 @@ function rssFinder(ctx, settings, url) {
     for (const [label, linkType] of [
         ['Atom RSS', 'application/atom+xml'], ['RSS 2.0', 'application/rss+xml']
     ]) {
-        const feedURL = doc(`link[type=${linkType}]`).attr('href');
+        const feedURL = normalizeURL(doc(`link[type=${linkType}]`).prop('href'), url);
         if (feedURL) {
             ctx.info(`Found ${label} URL: ${feedURL}`);
             const res = getResponse(ctx.fetch(feedURL));
@@ -1280,16 +1293,19 @@ function rssFinder(ctx, settings, url) {
             }
         }
     }
-    const hrefs = doc('a[href*="rss"').map((_, el) => el.attribs['href']).get();
+    const hrefs = Array.from(doc('a').map((_, el) => normalizeURL(doc(el).prop('href'), url)));
     ctx.info(`Unable to find <link> to feed, checking hyperlinks. Found ${hrefs.length} URLs.`);
     for (const href of hrefs) {
-        if (!/^https?:.+\/.+\brss\b/.test(href)) {
+        if (!href) {
+            continue;
+        }
+        if (!/^https?:.+\/.+\brss\b/i.test(href)) {
             continue;
         }
         const res = getResponse(ctx.fetch(href));
         const result = testRSSContent(ctx, res);
         if (result === undefined) {
-            ctx.info(`Found URL in link: ${href}; Processing.`);
+            ctx.info(`Found URL: ${href}; Processing.`);
             return addRSSFeed(ctx, settings, href, res.content);
         }
         ctx.info(`Found URL in link: ${href}; ${result || 'Unable to resolve.'}`);
@@ -1305,6 +1321,34 @@ function getResponse(res) {
         contentType: (_a = headers['Content-Type']) !== null && _a !== void 0 ? _a : '',
         content: res.getContentText(),
     };
+}
+const urlPattern = /^(?<proto>https?:\/\/)(?<domain>[^\/]+)(?<path>[^?#]*)(?<qs>\?[^#]*)?(?<fragment>#.*)?$/;
+/**
+ * Normalizes a URL relative to a base URL. This is neeeded as the GS environment
+ * does not include the URL class and Cheerio will silently skip normalizing.
+ */
+function normalizeURL(url, base) {
+    var _a, _b;
+    if (!url || /^https?:\/\//.test(url)) {
+        return url;
+    }
+    const groups = (_a = urlPattern.exec(base)) === null || _a === void 0 ? void 0 : _a.groups;
+    if (!groups) {
+        throw new Error(`Unable to extract domain from: "${base}"`);
+    }
+    if (url.startsWith('#')) {
+        return `${groups.proto}${groups.domain}${groups.path}${(_b = groups.qs) !== null && _b !== void 0 ? _b : ''}${url}`;
+    }
+    if (url.startsWith('?')) {
+        return `${groups.proto}${groups.domain}${groups.path}${url}`;
+    }
+    if (url.startsWith('/')) {
+        return `${groups.proto}${groups.domain}${url}`;
+    }
+    // path could be an empty string.
+    const path = (groups.path || '/').split('/');
+    path[path.length - 1] = url;
+    return `${groups.proto}${groups.domain}${path.join('/')}`;
 }
 /**
  * testRSSContent - returns undefined if no issue, string if error, and empty
@@ -1337,7 +1381,9 @@ function addRSSFeed(ctx, settings, url, content) {
         return String(e);
     }
     const ws = settings.worksheet;
-    updateFeedRow(ws, settings.feedHeaders, ws.getLastRow() + 1, [
+    const row = ws.getLastRow() + 1;
+    ctx.info(`Adding ${ws.getName()} #${row}: "${xmlFeed.title}" (${xmlFeed.link})`);
+    updateFeedRow(ws, settings.feedHeaders, row, [
         [HEADERS.feed, url],
         [HEADERS.discord, `[${xmlFeed.title}](${xmlFeed.link})`],
         [HEADERS.time, ctx.now],
@@ -1558,9 +1604,9 @@ function alert(msg, buttonset) {
 }
 function performRssFinder(url) {
     return wrapper('rssFinder', undefined, ctx => {
-        console.log('getting: ', url);
         const sheet = SpreadsheetApp.getActiveSheet();
         const settings = ctx.getSheetSettings(sheet);
+        setHeaders(ctx, sheet);
         if (!settings) {
             alert('Worksheet settings not found.');
             return false;

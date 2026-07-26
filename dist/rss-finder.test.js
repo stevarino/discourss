@@ -19,7 +19,7 @@ describe('rss-finder.ts unit tests', () => {
         const expected = [feedUrl, `[Test Feed](https://example.com)`, ctx.now, 'guid-1'];
         assert.deepEqual(vals, expected);
     });
-    describe('load rss from html link tag', () => {
+    test('load rss from html link tag', () => {
         const { ctx, ws, settings } = m.buildMocksWithSheet();
         const fetcher = ctx.fetcher;
         const html = `
@@ -44,24 +44,25 @@ describe('rss-finder.ts unit tests', () => {
         const expected = [feedUrl, `[Test Feed](https://example.com)`, ctx.now, 'guid-1'];
         assert.deepEqual(vals, expected);
     });
-    describe('load rss from html anchor tag', () => {
+    test('load rss from html anchor tag', () => {
         const { ctx, ws, settings } = m.buildMocksWithSheet();
         const fetcher = ctx.fetcher;
         const html = `
       <html><head></head><body>
         <h1>Hello, World.</h1>
-        <p><a href='/rss.xml'>Subscribe to my newsletter!</a></p>
+        <p><a href='/foo/bar/abcrssdef/'>Wrong URL!</a></p>
+        <p><a href='/foo/rss/'>Subscribe to my newsletter!</a></p>
       </body></html>`;
-        const htmlUrl = 'https://example.com/';
+        const htmlUrl = 'https://example.com/foo/';
         fetcher.addMock(htmlUrl, html, 200, {
             'Content-Type': 'text/html;charset=utf-8',
         });
-        const feedUrl = 'https://example.com/rss.xml';
+        const feedUrl = 'https://example.com/foo/rss/';
         fetcher.addMock(feedUrl, m.SAMPLE_RSS_FEED, 200, {
             'Content-Type': 'application/rss+xml;charset=utf-8',
         });
         const lastRow = ws.getLastRow();
-        const result = rssFinder(ctx, settings, feedUrl);
+        const result = rssFinder(ctx, settings, htmlUrl);
         assert.strictEqual(result, undefined, 'Expected no result');
         const vals = ws.getRange(lastRow + 1, 1, 1, 4).getValues()[0];
         const expected = [feedUrl, `[Test Feed](https://example.com)`, ctx.now, 'guid-1'];
