@@ -10,7 +10,7 @@ import {
 
 import { Ratelimiter } from './ratelimiter.js';
 
-/** Purge logs every 10s */
+/** Purge logs every 5s */
 const PURGE_INTERVAL = 5_000;
 
 export type LOG_RECORD = [number, LOG_LEVEL, string];

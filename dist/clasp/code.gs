@@ -26,7 +26,7 @@
  */
 
 
-const version = '1-785-035-547-355';
+const version = '1-785-171-430-163';
 
 /**
  * common.js - common interfaces, types, and constants.
@@ -243,7 +243,7 @@ class Ratelimiter {
 /**
  * context.js - Context and Logging infrastructure.
  */
-/** Purge logs every 10s */
+/** Purge logs every 5s */
 const PURGE_INTERVAL = 5000;
 var LOG_LEVEL;
 (function (LOG_LEVEL) {
@@ -625,7 +625,7 @@ function writeLogs(sheet, logs, logger) {
         const oldRows = oldRange.getValues();
         rowCount = oldRows.length + 1;
         oldRange.clear();
-        let cutoffTime = Date.now() - (7 * 24 * 3600);
+        let cutoffTime = Date.now() / 1000 - (7 * 24 * 3600);
         for (let i = 1; i < oldRows.length; i++) {
             const time = oldRows[i][0];
             if (typeof time === 'number' && cutoffTime < time) {

@@ -3,7 +3,7 @@
  */
 import { CONFIG, Fetcher, DEFAULT_APP_NAME, getWebhookId, } from './common.js';
 import { Ratelimiter } from './ratelimiter.js';
-/** Purge logs every 10s */
+/** Purge logs every 5s */
 const PURGE_INTERVAL = 5000;
 export var LOG_LEVEL;
 (function (LOG_LEVEL) {

@@ -2,6 +2,13 @@
 import { DEFAULT_APP_NAME } from "./common.js";
 import { LOGS_TAB } from "./sheets.js";
 function unexpectedError(msg) {
+    if (msg instanceof Error) {
+        msg = msg.message;
+    }
+    // Network timeout. Expected on idle or unloaded tab.
+    if (typeof msg === 'string' && msg.startsWith('NetworkError: Connection failure due to HTTP')) {
+        return null;
+    }
     safeError(`An unexpected error occured:\n${msg}`);
     return null;
 }
