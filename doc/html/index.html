@@ -141,12 +141,11 @@
 <li><a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks">Create a webhook in Discord</a>.</li>
 <li><a href="https://workspace.google.com/u/0/marketplace/app/discourss/107272671119">Enable the Addon</a> in the Workplace Marketplace Store.</li>
 <li>Open a spreadsheet (<a href="https://sheets.new">blank is recommended</a>, but not necessary).</li>
-<li>Locate the <code>DisouRSS</code> menu under the <code>Extensions</code> menu.</li>
-<li>Start with <code>Setup</code> as that will create the necessary sheets and columns.</li>
-<li>Enter your RSS feed details in the <code>Feeds</code> tab.</li>
-<li>Enter the Discord Webhook under the <code>Settings</code> tab in the <code>webhook</code> field.</li>
-<li>Cick <code>Run</code> in the <code>DiscouRSS</code> menu to manualy test the settings.</li>
-<li>To run DiscouRSS automatically, click the <code>Enable</code> menu item.</li>
+<li>Locate the <code>DisouRSS</code> menu under the <code>Extensions</code> menu and select <code>Show sidebar</code>.</li>
+<li>Enter the webhook. Submitting this will setup the Spreadsheet.</li>
+<li>Enter an RSS URL under the Feeds column and a Discord User ID or other attributation under the Discord column.</li>
+<li>Cick <code>Run</code> in the <code>DiscouRSS</code> sidebar to manualy test the settings.</li>
+<li>To run DiscouRSS automatically, click the <code>Enable Timer</code> sidebar button.</li>
 </ul>
 <h2>Configuration</h2>
 <h3>Feed Tab</h3>
@@ -249,28 +248,6 @@
 <td>Whether or not to bundle the items as a single discord message.</td>
 </tr>
 </tbody></table>
-<h3>Debugging</h3>
-<p>Detailed execution details can be found in the <code>Logs</code> tab.</p>
-<p>By default, the feeds are scanned every five minutes, with each feed scanned once an hour. To override this behavior and force a feed to be rescanned, set the <code>Time</code> column to <code>0</code>.</p>
-<p>Feed items will only be sent to Discord if they are &quot;new,&quot; as determined by the <code>GUID</code> column. Setting the cell to an empty value will cause the feed to revert to its initial state with the latest feed item used to determine &quot;new&quot; moving forward.</p>
-<p>Setting a feed&#39;s <code>GUID</code> cell to <code>0</code> will cause all feed items to be considered new.</p>
-<p>You can also set the <code>GUID</code> cell to a previous <code>guid</code> value (from the feed) to send all subsequent feed items. There is no way to send a specific feed item currently.</p>
-<h2>Contributing</h2>
-<p>Pull requests and new issues are welcome.</p>
-<p>AI was used for the generation of mock and test code. All the fun code was human-generated.</p>
-<h3>Deployment Instructions</h3>
-<p>There are a total of six version systems to be aware of (not counting github stuff):</p>
-<ul>
-<li>AppsScript HEAD: untracked, AppsScript versions are snapshots of this.</li>
-<li>AppsScript Version: incremental snapshot counter.</li>
-<li>AppsScript Deployments: (currently unused) a deployment target for AppsScript Versions. Used primarily for static web app URLs.</li>
-<li>NPM Version: should map 1-1 with AppsScript Version, marked through git tags.</li>
-<li><code>version.js</code>: deployed code versioning that changes on every build. May differ from AppsScript Version due to AppsScript HEAD deploys, but there will always be exactcly one <code>version.js</code> that ties MPM Version to AppsScript Version.</li>
-<li>Workplace Marketplace: TBD. Appars to be based on AppsScript Versions, not AppsScript Deployments.</li>
-</ul>
-<p><code>npm run build</code> will increment <code>version.js</code> only. Combine it with <code>npm run push</code> to push the current code to AppsScript <code>HEAD</code>.</p>
-<p><code>npm version patch</code> (and related) commands will create an NPM version (via git tags) and also create a persistent AppsScript Version. The AppsScript Version will have the NPM Version and <code>version.js</code> embedded in its description. You can run <code>npx clasp versions</code> to inspect the versions.</p>
-<p>TODO: document deployment to the marketplace.</p>
 
 
 <footer>

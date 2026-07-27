@@ -88,7 +88,7 @@ async function buildWeb() {
   const baseDir = './doc/md/';
   const outputDir = './doc/html/';
 
-  await fs.copyFile('README.md', path.join(baseDir, 'index.md'));
+  // await fs.copyFile('README.md', path.join(baseDir, 'index.md'));
 
   // empty the output directory
   for (let filename of await fs.readdir(outputDir)) {
