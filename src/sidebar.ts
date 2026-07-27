@@ -18,6 +18,13 @@ declare global {
 }
 
 function unexpectedError(msg: any) {
+  if (msg instanceof Error) {
+    msg = msg.message;
+  }
+  // Network timeout. Expected on idle or unloaded tab.
+  if (typeof msg === 'string' && msg.startsWith('NetworkError: Connection failure due to HTTP')) {
+    return null;
+  }
   safeError(`An unexpected error occured:\n${msg}`);
   return null;
 }
